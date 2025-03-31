@@ -3,323 +3,237 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Professional Login</title>
+    <title>Facebook Style Login</title>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
-        
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
-            font-family: 'Poppins', sans-serif;
+            font-family: Arial, Helvetica, sans-serif;
         }
-        
+
         body {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            height: 100vh;
+            background-color: #f0f2f5;
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+
+        .header {
+            background-color: white;
+            height: 80px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            display: flex;
+            align-items: center;
+            padding: 0 15px;
+        }
+
+        .logo {
+            color: #1877f2;
+            font-size: 28px;
+            font-weight: bold;
+            margin-right: 15px;
+        }
+
+        .search-bar {
+            flex-grow: 1;
+            max-width: 500px;
+        }
+
+        .search-bar input {
+            width: 100%;
+            padding: 8px 12px;
+            border-radius: 20px;
+            border: none;
+            background-color: #f0f2f5;
+            font-size: 14px;
+        }
+
+        .main-content {
             display: flex;
             justify-content: center;
             align-items: center;
-            overflow: hidden;
+            flex-grow: 1;
+            padding: 20px;
         }
-        
-        .login-container {
-            background-color: rgba(255, 255, 255, 0.9);
-            padding: 40px;
-            border-radius: 15px;
-            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.2);
-            width: 400px;
-            max-width: 90%;
-            transform: translateY(20px);
-            opacity: 0;
-            animation: fadeInUp 0.6s ease-out forwards;
-            position: relative;
-            overflow: hidden;
+
+        .hero-text {
+            max-width: 500px;
+            padding-right: 50px;
         }
-        
-        .login-container::before {
-            content: '';
-            position: absolute;
-            top: -50%;
-            left: -50%;
-            width: 200%;
-            height: 200%;
-            background: linear-gradient(
-                to bottom right,
-                rgba(255, 255, 255, 0.3) 0%,
-                rgba(255, 255, 255, 0) 60%
-            );
-            transform: rotate(30deg);
-            animation: shine 3s infinite;
-        }
-        
-        @keyframes fadeInUp {
-            from {
-                opacity: 0;
-                transform: translateY(20px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-        
-        @keyframes shine {
-            0% {
-                transform: rotate(30deg) translate(-30%, -30%);
-            }
-            100% {
-                transform: rotate(30deg) translate(30%, 30%);
-            }
-        }
-        
-        .login-header {
-            text-align: center;
-            margin-bottom: 30px;
-        }
-        
-        .login-header h1 {
-            color: #333;
-            font-weight: 600;
-            font-size: 28px;
+
+        .hero-text h1 {
+            color: #1877f2;
+            font-size: 55px;
             margin-bottom: 10px;
         }
-        
-        .login-header p {
-            color: #666;
-            font-size: 14px;
+
+        .hero-text p {
+            font-size: 24px;
+            color: #1c1e21;
         }
-        
-        .input-group {
-            margin-bottom: 25px;
-            position: relative;
-        }
-        
-        .input-group input {
-            width: 100%;
-            padding: 15px 20px;
-            border: 2px solid #e0e0e0;
-            border-radius: 8px;
-            font-size: 16px;
-            transition: all 0.3s;
-            background-color: #f9f9f9;
-        }
-        
-        .input-group input:focus {
-            border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
-            outline: none;
-        }
-        
-        .input-group label {
-            position: absolute;
-            left: 20px;
-            top: 15px;
-            color: #999;
-            font-size: 16px;
-            transition: all 0.3s;
-            pointer-events: none;
-        }
-        
-        .input-group input:focus + label,
-        .input-group input:not(:placeholder-shown) + label {
-            top: -10px;
-            left: 15px;
-            font-size: 12px;
+
+        .login-box {
             background-color: white;
-            padding: 0 5px;
-            color: #667eea;
-        }
-        
-        .forgot-password {
-            text-align: right;
-            margin-bottom: 25px;
-        }
-        
-        .forgot-password a {
-            color: #666;
-            font-size: 14px;
-            text-decoration: none;
-            transition: color 0.3s;
-        }
-        
-        .forgot-password a:hover {
-            color: #667eea;
-        }
-        
-        .login-button {
-            width: 100%;
-            padding: 15px;
-            background: linear-gradient(to right, #667eea, #764ba2);
-            border: none;
             border-radius: 8px;
-            color: white;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s;
-            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1), 0 8px 16px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+            width: 400px;
         }
-        
-        .login-button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
-        }
-        
-        .login-button:active {
-            transform: translateY(0);
-        }
-        
-        .signup-link {
-            text-align: center;
-            margin-top: 25px;
-            font-size: 14px;
-            color: #666;
-        }
-        
-        .signup-link a {
-            color: #667eea;
-            text-decoration: none;
-            font-weight: 500;
-        }
-        
-        /* Animated background elements */
-        .bg-bubbles {
-            position: absolute;
-            top: 0;
-            left: 0;
+
+        .login-box input {
             width: 100%;
-            height: 100%;
-            z-index: -1;
+            padding: 14px 16px;
+            margin-bottom: 12px;
+            border: 1px solid #dddfe2;
+            border-radius: 6px;
+            font-size: 16px;
         }
-        
-        .bg-bubbles li {
-            position: absolute;
-            list-style: none;
+
+        .login-box input:focus {
+            outline: none;
+            border-color: #1877f2;
+            box-shadow: 0 0 0 2px #e7f3ff;
+        }
+
+        .login-button {
+            background-color: #1877f2;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 20px;
+            font-weight: bold;
+            padding: 12px;
+            width: 100%;
+            cursor: pointer;
+            margin-bottom: 15px;
+        }
+
+        .login-button:hover {
+            background-color: #166fe5;
+        }
+
+        .forgot-password {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .forgot-password a {
+            color: #1877f2;
+            text-decoration: none;
+            font-size: 14px;
+        }
+
+        .forgot-password a:hover {
+            text-decoration: underline;
+        }
+
+        .divider {
+            border-bottom: 1px solid #dadde1;
+            margin: 20px 0;
+        }
+
+        .create-account {
+            background-color: #42b72a;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 17px;
+            font-weight: bold;
+            padding: 12px;
+            width: auto;
+            margin: 0 auto;
             display: block;
-            width: 40px;
-            height: 40px;
-            background-color: rgba(255, 255, 255, 0.15);
-            bottom: -160px;
-            animation: square 25s infinite;
-            transition-timing-function: linear;
-            border-radius: 50%;
+            cursor: pointer;
         }
-        
-        .bg-bubbles li:nth-child(1) {
-            left: 10%;
+
+        .create-account:hover {
+            background-color: #36a420;
         }
-        
-        .bg-bubbles li:nth-child(2) {
-            left: 20%;
-            width: 80px;
-            height: 80px;
-            animation-delay: 2s;
-            animation-duration: 17s;
+
+        .create-page {
+            text-align: center;
+            margin-top: 20px;
+            font-size: 14px;
         }
-        
-        .bg-bubbles li:nth-child(3) {
-            left: 25%;
-            animation-delay: 4s;
+
+        .create-page a {
+            color: #1c1e21;
+            font-weight: bold;
+            text-decoration: none;
         }
-        
-        .bg-bubbles li:nth-child(4) {
-            left: 40%;
-            width: 60px;
-            height: 60px;
-            animation-duration: 22s;
-            background-color: rgba(255, 255, 255, 0.25);
+
+        .create-page a:hover {
+            text-decoration: underline;
         }
-        
-        .bg-bubbles li:nth-child(5) {
-            left: 70%;
+
+        .footer {
+            background-color: white;
+            padding: 20px;
+            text-align: center;
+            font-size: 12px;
+            color: #737373;
+            margin-top: auto;
         }
-        
-        .bg-bubbles li:nth-child(6) {
-            left: 80%;
-            width: 120px;
-            height: 120px;
-            animation-delay: 3s;
-            background-color: rgba(255, 255, 255, 0.2);
-        }
-        
-        .bg-bubbles li:nth-child(7) {
-            left: 32%;
-            width: 160px;
-            height: 160px;
-            animation-delay: 7s;
-        }
-        
-        .bg-bubbles li:nth-child(8) {
-            left: 55%;
-            width: 20px;
-            height: 20px;
-            animation-delay: 15s;
-            animation-duration: 40s;
-        }
-        
-        .bg-bubbles li:nth-child(9) {
-            left: 25%;
-            width: 10px;
-            height: 10px;
-            animation-delay: 2s;
-            animation-duration: 40s;
-            background-color: rgba(255, 255, 255, 0.3);
-        }
-        
-        .bg-bubbles li:nth-child(10) {
-            left: 90%;
-            width: 160px;
-            height: 160px;
-            animation-delay: 11s;
-        }
-        
-        @keyframes square {
-            0% {
-                transform: translateY(0);
+
+        @media (max-width: 900px) {
+            .main-content {
+                flex-direction: column;
+                text-align: center;
             }
-            100% {
-                transform: translateY(-1000px) rotate(600deg);
+            
+            .hero-text {
+                padding-right: 0;
+                margin-bottom: 40px;
+            }
+            
+            .hero-text h1 {
+                font-size: 40px;
+            }
+            
+            .hero-text p {
+                font-size: 18px;
             }
         }
     </style>
 </head>
 <body>
-    <div class="login-container">
-        <div class="login-header">
-            <h1>Welcome Back</h1>
-            <p>Please login to your account</p>
+    <header class="header">
+        <div class="logo">facebook</div>
+        <div class="search-bar">
+            <input type="text" placeholder="Search Facebook">
         </div>
-        <form>
-            <div class="input-group">
-                <input type="text" id="username" placeholder=" " required>
-                <label for="username">Username</label>
+    </header>
+
+    <main class="main-content">
+        <div class="hero-text">
+            <h1>facebook</h1>
+            <p>Connect with friends and the world around you on Facebook.</p>
+        </div>
+
+        <div class="login-box">
+            <form>
+                <input type="text" placeholder="Email or phone number">
+                <input type="password" placeholder="Password">
+                <button type="submit" class="login-button">Log In</button>
+                <div class="forgot-password">
+                    <a href="#">Forgot password?</a>
+                </div>
+                <div class="divider"></div>
+                <button type="button" class="create-account">Create New Account</button>
+            </form>
+            <div class="create-page">
+                <a href="#"><strong>Create a Page</strong></a> for a celebrity, brand or business.
             </div>
-            <div class="input-group">
-                <input type="password" id="password" placeholder=" " required>
-                <label for="password">Password</label>
-            </div>
-            <div class="forgot-password">
-                <a href="#">Forgot Password?</a>
-            </div>
-            <button type="submit" class="login-button">Login</button>
-            <div class="signup-link">
-                Don't have an account? <a href="#">Sign up</a>
-            </div>
-        </form>
-    </div>
-    
-    <ul class="bg-bubbles">
-        <li></li>
-        <li></li>
-        <li></li>
-        <li></li>
-        <li></li>
-        <li></li>
-        <li></li>
-        <li></li>
-        <li></li>
-        <li></li>
-    </ul>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <div>English (US) · Español · Français (France) · 中文(简体) · العربية · Português (Brasil) · Italiano · Deutsch</div>
+        <div>Sign Up · Log In · Messenger · Facebook Lite · Video · Places · Games · Marketplace · Meta Pay · Meta Store · Meta Quest</div>
+        <div>Instagram · Threads · Fundraisers · Services · Voting Information Center · Privacy Policy · Privacy Center · Groups</div>
+        <div>About · Create Ad · Create Page · Developers · Careers · Cookies · Ad Choices · Terms · Help · Contact Uploading & Non-Users</div>
+        <div>Meta © 2023</div>
+    </footer>
 </body>
 </html>
