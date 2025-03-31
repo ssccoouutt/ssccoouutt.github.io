@@ -1,239 +1,606 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
+<!DOCTYPE html><html lang="en"><head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Facebook Style Login</title>
+    <title>Learn With Faizan - Channels</title>
+    <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-            font-family: Arial, Helvetica, sans-serif;
+        /* Base styles */
+        :root {
+            --primary: #3b82f6;
+            --card-bg: rgba(17, 25, 40, 0.75);
+            --border: rgba(255, 255, 255, 0.125);
         }
 
         body {
-            background-color: #f0f2f5;
-            display: flex;
-            flex-direction: column;
-            min-height: 100vh;
+            background: linear-gradient(
+                125deg,
+                #000000,
+                #111827,
+                #1f2937,
+                #111827,
+                #000000
+            );
+            background-size: 400% 400%;
+            animation: gradientBG 15s ease infinite;
         }
 
-        .header {
-            background-color: white;
-            height: 80px;
-            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-            display: flex;
-            align-items: center;
-            padding: 0 15px;
+        @keyframes gradientBG {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
         }
 
-        .logo {
-            color: #1877f2;
-            font-size: 28px;
-            font-weight: bold;
-            margin-right: 15px;
+        /* Modern card styling */
+        .card {
+            backdrop-filter: blur(16px) saturate(180%);
+            -webkit-backdrop-filter: blur(16px) saturate(180%);
+            background-color: var(--card-bg);
+            border-radius: 1rem;
+            border: 1px solid var(--border);
+            transition: all 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+        }
+
+        /* Remove old animations */
+        .bg-grid, #particleCanvas, .cursor-glow {
+            display: none;
+        }
+
+        /* Modern header */
+        header {
+            background: rgba(17, 25, 40, 0.75);
+            backdrop-filter: blur(16px) saturate(180%);
+            -webkit-backdrop-filter: blur(16px) saturate(180%);
+            border-bottom: 1px solid var(--border);
+        }
+
+        /* Hero section enhancement */
+        .hero-gradient {
+            background: linear-gradient(
+                45deg,
+                rgba(59, 130, 246, 0.1),
+                rgba(37, 99, 235, 0.1)
+            );
+            backdrop-filter: blur(8px);
+            border: 1px solid var(--border);
+            border-radius: 1rem;
+            padding: 2rem;
+        }
+
+        /* Button styling */
+        .modern-button {
+            background: rgba(59, 130, 246, 0.1);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(59, 130, 246, 0.5);
+            transition: all 0.3s ease;
+        }
+
+        .modern-button:hover {
+            background: rgba(59, 130, 246, 0.2);
+            border-color: rgba(59, 130, 246, 0.8);
+        }
+
+        /* Add these new styles */
+        .floating-logo {
+            transform-style: preserve-3d;
+            animation: float 6s ease-in-out infinite;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateZ(0) translateY(0); }
+            50% { transform: translateZ(20px) translateY(-10px); }
         }
 
         .search-bar {
-            flex-grow: 1;
-            max-width: 500px;
+            background: rgba(17, 25, 40, 0.3);
+            backdrop-filter: blur(8px);
+            border: 1px solid var(--border);
         }
 
-        .search-bar input {
+        .card {
+            position: relative;
+            overflow: hidden;
+        }
+
+        .card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
             width: 100%;
-            padding: 8px 12px;
-            border-radius: 20px;
-            border: none;
-            background-color: #f0f2f5;
-            font-size: 14px;
+            height: 100%;
+            background: linear-gradient(
+                90deg,
+                transparent,
+                rgba(255, 255, 255, 0.05),
+                transparent
+            );
+            transition: 0.5s;
         }
 
-        .main-content {
-            display: flex;
-            justify-content: center;
+        .card:hover::before {
+            left: 100%;
+        }
+
+        .modern-footer {
+            background: linear-gradient(
+                to top,
+                rgba(17, 25, 40, 1),
+                rgba(17, 25, 40, 0.8)
+            );
+            backdrop-filter: blur(10px);
+        }
+
+        /* Category pill styles */
+        .category-pill {
+            background: rgba(59, 130, 246, 0.1);
+            backdrop-filter: blur(4px);
+            border: 1px solid rgba(59, 130, 246, 0.2);
+            transition: all 0.3s ease;
+        }
+
+        .category-pill:hover {
+            background: rgba(59, 130, 246, 0.2);
+            border-color: rgba(59, 130, 246, 0.4);
+        }
+
+        .category-pill.active {
+            background: rgba(59, 130, 246, 0.3);
+            border-color: rgba(59, 130, 246, 0.6);
+        }
+
+        /* Improved search bar */
+        .search-container {
+            position: relative;
+        }
+        
+        .search-icon {
+            position: absolute;
+            left: 1rem;
+            top: 50%;
+            transform: translateY(-50%);
+            color: rgba(255, 255, 255, 0.5);
+        }
+        
+        .search-bar {
+            padding-left: 2.75rem !important;
+        }
+        
+        /* Image loading animation */
+        .image-container {
+            position: relative;
+        }
+        
+        .image-container::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+            animation: shimmer 1.5s infinite;
+        }
+        
+        @keyframes shimmer {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
+        }
+        
+        /* Scroll progress indicator */
+        .scroll-progress {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 2px;
+            background: linear-gradient(to right, var(--primary), #60a5fa);
+            transform-origin: 0 50%;
+            transform: scaleX(0);
+            transition: transform 0.1s;
+            z-index: 1000;
+        }
+        
+        /* Enhanced card hover effects */
+        .card {
+            position: relative;
+            isolation: isolate;
+        }
+        
+        .card::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: radial-gradient(circle at var(--mouse-x, 50%) var(--mouse-y, 50%), 
+                                      rgba(255,255,255,0.1) 0%, 
+                                      transparent 50%);
+            opacity: 0;
+            transition: opacity 0.3s;
+            z-index: -1;
+            border-radius: 1rem;
+        }
+        
+        .card:hover::after {
+            opacity: 1;
+        }
+        
+        /* Channel count badge */
+        .channel-count {
+            display: inline-flex;
             align-items: center;
-            flex-grow: 1;
-            padding: 20px;
-        }
-
-        .hero-text {
-            max-width: 500px;
-            padding-right: 50px;
-        }
-
-        .hero-text h1 {
-            color: #1877f2;
-            font-size: 55px;
-            margin-bottom: 10px;
-        }
-
-        .hero-text p {
-            font-size: 24px;
-            color: #1c1e21;
-        }
-
-        .login-box {
-            background-color: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1), 0 8px 16px rgba(0, 0, 0, 0.1);
-            padding: 20px;
-            width: 400px;
-        }
-
-        .login-box input {
-            width: 100%;
-            padding: 14px 16px;
-            margin-bottom: 12px;
-            border: 1px solid #dddfe2;
-            border-radius: 6px;
-            font-size: 16px;
-        }
-
-        .login-box input:focus {
-            outline: none;
-            border-color: #1877f2;
-            box-shadow: 0 0 0 2px #e7f3ff;
-        }
-
-        .login-button {
-            background-color: #1877f2;
-            color: white;
-            border: none;
-            border-radius: 6px;
-            font-size: 20px;
-            font-weight: bold;
-            padding: 12px;
-            width: 100%;
-            cursor: pointer;
-            margin-bottom: 15px;
-        }
-
-        .login-button:hover {
-            background-color: #166fe5;
-        }
-
-        .forgot-password {
-            text-align: center;
-            margin-bottom: 20px;
-        }
-
-        .forgot-password a {
-            color: #1877f2;
-            text-decoration: none;
-            font-size: 14px;
-        }
-
-        .forgot-password a:hover {
-            text-decoration: underline;
-        }
-
-        .divider {
-            border-bottom: 1px solid #dadde1;
-            margin: 20px 0;
-        }
-
-        .create-account {
-            background-color: #42b72a;
-            color: white;
-            border: none;
-            border-radius: 6px;
-            font-size: 17px;
-            font-weight: bold;
-            padding: 12px;
-            width: auto;
-            margin: 0 auto;
-            display: block;
-            cursor: pointer;
-        }
-
-        .create-account:hover {
-            background-color: #36a420;
-        }
-
-        .create-page {
-            text-align: center;
-            margin-top: 20px;
-            font-size: 14px;
-        }
-
-        .create-page a {
-            color: #1c1e21;
-            font-weight: bold;
-            text-decoration: none;
-        }
-
-        .create-page a:hover {
-            text-decoration: underline;
-        }
-
-        .footer {
-            background-color: white;
-            padding: 20px;
-            text-align: center;
-            font-size: 12px;
-            color: #737373;
-            margin-top: auto;
-        }
-
-        @media (max-width: 900px) {
-            .main-content {
-                flex-direction: column;
-                text-align: center;
-            }
-            
-            .hero-text {
-                padding-right: 0;
-                margin-bottom: 40px;
-            }
-            
-            .hero-text h1 {
-                font-size: 40px;
-            }
-            
-            .hero-text p {
-                font-size: 18px;
-            }
+            background: rgba(59, 130, 246, 0.1);
+            border: 1px solid rgba(59, 130, 246, 0.2);
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.875rem;
+            margin-top: 1rem;
         }
     </style>
 </head>
-<body>
-    <header class="header">
-        <div class="logo">facebook</div>
-        <div class="search-bar">
-            <input type="text" placeholder="Search Facebook">
+<body class="bg-gray-900 text-white min-h-screen">
+    <!-- Particle Canvas -->
+    <canvas id="particleCanvas"></canvas>
+
+    <!-- Background Elements -->
+    <div class="fixed inset-0 bg-grid opacity-30"></div>
+    <div class="fixed inset-0 overflow-hidden pointer-events-none">
+        <div class="absolute inset-0 flex items-center justify-center">
+            <div class="text-[20rem] font-bold text-gray-800/10 select-none">
+                LWF
+            </div>
+        </div>
+    </div>
+
+    <!-- Header -->
+    <header class="fixed top-0 w-full z-50 transition-all duration-300">
+        <div class="max-w-7xl mx-auto px-4 py-4">
+            <h1 class="text-3xl font-bold bg-gradient-to-r from-blue-500 via-blue-400 to-cyan-300 text-transparent bg-clip-text">
+                Learn With Faizan
+            </h1>
         </div>
     </header>
 
-    <main class="main-content">
-        <div class="hero-text">
-            <h1>facebook</h1>
-            <p>Connect with friends and the world around you on Facebook.</p>
+    <!-- Update search section -->
+    <div class="max-w-7xl mx-auto px-4 mb-12">
+        <div class="flex flex-col items-center gap-4">
+            <div class="w-full max-w-xl search-container">
+                <span class="search-icon">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                    </svg>
+                </span>
+                <input type="text" placeholder="Search channels..." class="search-bar w-full px-4 py-3 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500" id="searchInput">
+            </div>
+            <div class="channel-count">
+                <span id="channelCounter">12</span>
+                <span class="ml-1">channels available</span>
+            </div>
         </div>
+    </div>
 
-        <div class="login-box">
-            <form>
-                <input type="text" placeholder="Email or phone number">
-                <input type="password" placeholder="Password">
-                <button type="submit" class="login-button">Log In</button>
-                <div class="forgot-password">
-                    <a href="#">Forgot password?</a>
-                </div>
-                <div class="divider"></div>
-                <button type="button" class="create-account">Create New Account</button>
-            </form>
-            <div class="create-page">
-                <a href="#"><strong>Create a Page</strong></a> for a celebrity, brand or business.
+    <!-- Add scroll progress indicator -->
+    <div class="scroll-progress"></div>
+
+    <!-- Main Content -->
+    <main class="relative pt-10 pb-16 px-4">
+        <div class="max-w-7xl mx-auto">
+            <div class="hero-gradient text-center mb-16">
+                <h2 class="text-6xl font-bold bg-gradient-to-r from-blue-500 via-blue-400 to-cyan-300 text-transparent bg-clip-text mb-6">
+                    WhatsApp Channels
+                </h2>
+                <p class="text-xl text-gray-300/90 max-w-2xl mx-auto">
+                    Join our exclusive community channels for premium resources, insights, and learning opportunities
+                </p>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8" id="channels-grid">
+                <!-- Cards will be inserted here by JavaScript -->
             </div>
         </div>
     </main>
 
-    <footer class="footer">
-        <div>English (US) · Español · Français (France) · 中文(简体) · العربية · Português (Brasil) · Italiano · Deutsch</div>
-        <div>Sign Up · Log In · Messenger · Facebook Lite · Video · Places · Games · Marketplace · Meta Pay · Meta Store · Meta Quest</div>
-        <div>Instagram · Threads · Fundraisers · Services · Voting Information Center · Privacy Policy · Privacy Center · Groups</div>
-        <div>About · Create Ad · Create Page · Developers · Careers · Cookies · Ad Choices · Terms · Help · Contact Uploading & Non-Users</div>
-        <div>Meta © 2023</div>
+    <!-- Scroll to top button -->
+    <button class="scroll-top fixed bottom-8 right-8 bg-blue-600 p-3 rounded-full shadow-lg z-50" onclick="scrollToTop()">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 10l7-7m0 0l7 7m-7-7v18"></path>
+        </svg>
+    </button>
+
+    <!-- Footer -->
+    <footer class="modern-footer py-12 text-gray-300 border-t border-gray-800">
+        <div class="max-w-7xl mx-auto px-4">
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-8">
+                <div>
+                    <h3 class="text-xl font-bold mb-4">Learn With Faizan</h3>
+                    <p class="text-gray-400">Empowering learners worldwide with premium educational resources.</p>
+                </div>
+                
+            </div>
+            <div class="mt-8 pt-8 border-t border-gray-800 text-center text-gray-400">
+                <p>© 2024 Learn With Faizan. All rights reserved.</p>
+            </div>
+        </div>
     </footer>
-</body>
-</html>
+
+    <script>
+        const channels = [
+            {
+                title: "Learn with Faizan",
+                description: "All other Channels are under this MAIN one. This is the OG Channel made and run by Faizan",
+                link: "https://whatsapp.com/channel/0029VaRuOC4DjiOgKzHjfB2s",
+                gradient: "from-blue-500 to-cyan-400",
+                image: "LWF-23.jpeg"
+            },
+            {
+                title: "Who Cares",
+                description: "Join this channel for premium digital products, courses, and exclusive learning resources,",
+                link: "https://whatsapp.com/channel/0029Vaeayhw8aKvKMC3KKt1S",
+                gradient: "from-purple-500 to-pink-500",
+                image: "LWF-22.jpeg"
+            },
+            {
+                title: "1%",
+                description: "Join the elite 1% - Premium strategies and insights for exceptional growth",
+                link: "https://whatsapp.com/channel/0029VagpsCt9MF8wICfb6a2E",
+                gradient: "from-green-400 to-emerald-500",
+                image: "LWF-21.jpeg"
+            },
+            {
+                title: "Hacking with Dark Eyes",
+                description: "Learn ethical hacking and cybersecurity from expert practitioners",
+                link: "https://whatsapp.com/channel/0029Vakn14M2ZjCmzEc4ow1o",
+                gradient: "from-gray-600 to-gray-800",
+                image: "LWF-20.jpeg"
+            },
+            {
+                title: "Artificial Intelligence",
+                description: "Stay updated with the latest AI trends, tools, and practical applications",
+                link: "https://whatsapp.com/channel/0029VaxspBRBqbr4QuxT2W1s",
+                gradient: "from-blue-600 to-blue-800",
+                image: "LWF-19.jpeg"
+            },
+            {
+                title: "Monetization with LWF",
+                description: "Master the art of monetization across various digital platforms",
+                link: "https://whatsapp.com/channel/0029VahuiwFADTOCxIf77e3c",
+                gradient: "from-red-500 to-orange-400",
+                image: "LWF-18.jpeg"
+            },
+            {
+                title: "Digital Assets",
+                description: "Access premium digital resources, templates, and tools for your projects",
+                link: "https://whatsapp.com/channel/0029VajDqS84SpkBWokkPL1m",
+                gradient: "from-purple-600 to-indigo-600",
+                image: "LWF-17.jpeg"
+            },
+            {
+                title: "SEO with LWF",
+                description: "Learn advanced SEO strategies to boost your website's visibility",
+                link: "https://whatsapp.com/channel/0029VaifrPmJuyAKKbEF0O3I",
+                gradient: "from-yellow-400 to-orange-500",
+                image: "LWF-16.jpeg"
+            },
+            {
+                title: "Mera Name",
+                description: "Personal branding and professional development resources",
+                link: "https://whatsapp.com/channel/0029VatmHI03mFYDcSxGcC03",
+                gradient: "from-green-500 to-teal-500",
+                image: "LWF-15.jpeg"
+            },
+            {
+                title: "LWF Host",
+                description: "Premium hosting services and exclusive hosting deals",
+                link: "https://whatsapp.com/channel/0029ValP2bi4Y9lfAKolrE1i",
+                gradient: "from-indigo-500 to-purple-500",
+                image: "LWF-14.jpeg"
+            },
+            {
+                title: "LWF Store",
+                description: "Access our digital store for premium products and resources",
+                link: "https://www.whatsapp.com/channel/0029VaiY6JaICVfg7oVwit3R",
+                gradient: "from-blue-500 to-indigo-500",
+                image: "LWF-13.jpeg"
+            },
+            {
+                title: "CMZON",
+                description: "Exclusive community for digital entrepreneurs and creators",
+                link: "https://whatsapp.com/channel/0029VaptYQx5fM5ammnppl1H",
+                gradient: "from-orange-400 to-red-500",
+                image: "LWF-12.jpeg"
+            }
+        ];
+
+        // Create and insert cards
+        const grid = document.getElementById('channels-grid');
+        channels.forEach(channel => {
+            const card = document.createElement('div');
+            card.className = 'card hover-glow';
+            // Update this part in your card creation code
+card.innerHTML = `
+    <div class="h-full flex flex-col">
+        <div class="relative h-48 overflow-hidden rounded-t-lg">
+            <img src="${channel.image}" alt="${channel.title}" class="w-full h-full object-cover">
+            <div class="absolute inset-0 bg-gradient-to-b ${channel.gradient} opacity-40"></div>
+        </div>
+        <div class="p-6 flex-1 flex flex-col">
+            <h3 class="text-xl font-bold text-white mb-3">${channel.title}</h3>
+            <p class="text-gray-300 mb-6 flex-1">${channel.description}</p>
+            <a href="${channel.link}" target="_blank" rel="noopener noreferrer" 
+               class="modern-button inline-flex items-center justify-center text-sm text-white rounded-lg px-6 py-3">
+                Join Channel
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 ml-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                </svg>
+            </a>
+        </div>
+    </div>
+`;
+            grid.appendChild(card);
+        });
+
+        // Header scroll effect
+        const header = document.querySelector('header');
+        window.addEventListener('scroll', () => {
+            if (window.scrollY > 50) {
+                header.classList.add('py-2');
+                header.classList.add('shadow-lg');
+            } else {
+                header.classList.remove('py-2');
+                header.classList.remove('shadow-lg');
+            }
+        });
+
+        // Mouse glow effect
+        document.addEventListener('mousemove', (e) => {
+            const cursors = document.querySelectorAll('.cursor-glow');
+            if (cursors.length > 2) cursors[0].remove();
+            
+            const cursor = document.createElement('div');
+            cursor.className = 'cursor-glow';
+            cursor.style.left = e.pageX + 'px';
+            cursor.style.top = e.pageY + 'px';
+            document.body.appendChild(cursor);
+            
+            setTimeout(() => cursor.remove(), 1000);
+        });
+
+        // Enhanced card tilt effect
+        document.querySelectorAll('.card').forEach(card => {
+            card.addEventListener('mousemove', (e) => {
+                const rect = card.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+                
+                const centerX = rect.width / 2;
+                const centerY = rect.height / 2;
+                
+                const rotateX = (y - centerY) / 20;
+                const rotateY = (centerX - x) / 20;
+                
+                card.style.transform = `perspective(1000px) rotateX(${rotateX}deg) rotateY(${rotateY}deg) scale3d(1.02, 1.02, 1.02)`;
+            });
+            
+            card.addEventListener('mouseleave', () => {
+                card.style.transform = 'perspective(1000px) rotateX(0) rotateY(0) scale3d(1, 1, 1)';
+            });
+        });
+
+        // Particle animation setup
+        const canvas = document.getElementById('particleCanvas');
+        const ctx = canvas.getContext('2d');
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        const particles = Array.from({ length: 50 }, () => ({
+            x: Math.random() * canvas.width,
+            y: Math.random() * canvas.height,
+            size: Math.random() * 2 + 1,
+            speedX: Math.random() * 1 - 0.5,
+            speedY: Math.random() * 1 - 0.5
+        }));
+
+        function animate() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            particles.forEach(p => {
+                p.x += p.speedX;
+                p.y += p.speedY;
+                
+                if(p.x < 0) p.x = canvas.width;
+                if(p.x > canvas.width) p.x = 0;
+                if(p.y < 0) p.y = canvas.height;
+                if(p.y > canvas.height) p.y = 0;
+                
+                ctx.fillStyle = 'rgba(59, 130, 246, 0.5)';
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                ctx.fill();
+            });
+            
+            requestAnimationFrame(animate);
+        }
+        animate();
+
+        // Scroll to top functionality
+        const scrollTopBtn = document.querySelector('.scroll-top');
+        window.addEventListener('scroll', () => {
+            if (window.scrollY > 500) {
+                scrollTopBtn.classList.add('visible');
+            } else {
+                scrollTopBtn.classList.remove('visible');
+            }
+        });
+
+        function scrollToTop() {
+            window.scrollTo({
+                top: 0,
+                behavior: 'smooth'
+            });
+        }
+
+        const searchInput = document.getElementById('searchInput');
+        const cards = document.querySelectorAll('.card');
+
+        // Search functionality
+        searchInput.addEventListener('input', filterCards);
+
+        function filterCards() {
+            const searchTerm = searchInput.value.toLowerCase();
+            let visibleCount = 0;
+
+            cards.forEach(card => {
+                const title = card.querySelector('h3').textContent.toLowerCase();
+                const description = card.querySelector('p').textContent.toLowerCase();
+                const matchesSearch = title.includes(searchTerm) || description.includes(searchTerm);
+
+                if (matchesSearch) {
+                    card.style.display = 'block';
+                    card.style.animation = 'fadeInUp 0.5s ease forwards';
+                    visibleCount++;
+                } else {
+                    card.style.display = 'none';
+                }
+            });
+
+            // Update channel counter
+            document.getElementById('channelCounter').textContent = visibleCount;
+        }
+
+        // Scroll progress indicator
+        const scrollProgress = document.querySelector('.scroll-progress');
+
+        window.addEventListener('scroll', () => {
+            const windowHeight = document.documentElement.scrollHeight - window.innerHeight;
+            const progress = window.scrollY / windowHeight;
+            scrollProgress.style.transform = `scaleX(${progress})`;
+        });
+
+        // Enhanced card hover effect with mouse position
+        document.querySelectorAll('.card').forEach(card => {
+            card.addEventListener('mousemove', (e) => {
+                const rect = card.getBoundingClientRect();
+                const x = ((e.clientX - rect.left) / rect.width) * 100;
+                const y = ((e.clientY - rect.top) / rect.height) * 100;
+                
+                card.style.setProperty('--mouse-x', `${x}%`);
+                card.style.setProperty('--mouse-y', `${y}%`);
+            });
+        });
+
+        // Image loading animation
+        document.querySelectorAll('.card img').forEach(img => {
+            img.parentElement.classList.add('image-container');
+            img.addEventListener('load', () => {
+                img.parentElement.classList.remove('image-container');
+            });
+        });
+    </script>
+
+</body></html>
