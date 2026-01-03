@@ -3,59 +3,82 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TechZoneX Pro Downloader</title>
+    <title>TechZoneX | High Quality Downloader</title>
     <style>
         body { font-family: 'Segoe UI', sans-serif; background: #0f0f0f; color: white; text-align: center; padding: 20px; }
-        .container { background: #1e1e1e; padding: 30px; border-radius: 15px; max-width: 500px; margin: auto; }
-        input { width: 80%; padding: 12px; border-radius: 5px; border: none; margin-bottom: 10px; }
-        select { width: 85%; padding: 10px; margin: 10px 0; border-radius: 5px; display: none; }
-        button { background: #ff0000; color: white; padding: 12px 25px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; }
+        .container { background: #1e1e1e; padding: 30px; border-radius: 15px; max-width: 500px; margin: auto; border: 1px solid #333; }
+        input { width: 90%; padding: 12px; border-radius: 8px; border: 1px solid #444; background: #121212; color: white; margin-bottom: 15px; }
+        select { width: 95%; padding: 10px; margin: 15px 0; border-radius: 8px; display: none; background: #333; color: white; }
+        button { background: #ff0000; color: white; padding: 12px 25px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; width: 100%; }
         #dlBtn { background: #28a745; display: none; margin-top: 10px; }
-        .loading { color: #f1c40f; display: none; }
+        #status { color: #f1c40f; display: none; margin: 15px 0; }
+        img { width: 100%; border-radius: 10px; margin-top: 15px; display: none; }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>TechZoneX Pro</h1>
-        <input type="text" id="videoUrl" placeholder="Paste YouTube Link">
-        <button onclick="fetchQualities()">Check Qualities</button>
+        <input type="text" id="videoUrl" placeholder="Paste YouTube Link Here">
+        <button id="checkBtn" onclick="fetchQualities()">Check Available Qualities</button>
         
-        <p class="loading" id="status">Fetching data...</p>
+        <p id="status">Connecting to server...</p>
+        <img id="thumbnail" src="">
+        <h3 id="videoTitle"></h3>
 
         <select id="formatSelector"></select>
         <button id="dlBtn" onclick="forceDownload()">Download Selected Quality</button>
-        
-        <div id="result"></div>
     </div>
 
     <script>
-        const API_URL = "https://heapy-melynda-achingly.ngrok-free.dev/"; 
+        // PASTE YOUR NGROK URL HERE
+        const API_URL = "https://heapy-melynda-achingly.ngrok-free.dev"; 
         let currentUrl = "";
 
         async function fetchQualities() {
             currentUrl = document.getElementById('videoUrl').value;
+            if(!currentUrl) return alert("Paste a link first!");
+
             const status = document.getElementById('status');
             const selector = document.getElementById('formatSelector');
-            
-            status.style.display = "block";
-            const response = await fetch(`${API_URL}/get_formats`, {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ url: currentUrl })
-            });
-            const data = await response.json();
-            status.style.display = "none";
+            const checkBtn = document.getElementById('checkBtn');
 
-            if(data.formats) {
-                selector.innerHTML = data.formats.map(f => 
-                    `<option value="${f.format_id}">${f.resolution} (${f.ext})</option>`).join('');
-                selector.style.display = "block";
-                document.getElementById('dlBtn').style.display = "inline-block";
+            status.style.display = "block";
+            checkBtn.disabled = true;
+
+            try {
+                const response = await fetch(`${API_URL}/get_formats`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ url: currentUrl })
+                });
+                const data = await response.json();
+
+                if(data.formats) {
+                    document.getElementById('thumbnail').src = data.thumb;
+                    document.getElementById('thumbnail').style.display = "block";
+                    document.getElementById('videoTitle').innerText = data.title;
+                    
+                    // Filter for unique resolutions to keep the list clean
+                    selector.innerHTML = data.formats.map(f => 
+                        `<option value="${f.format_id}">${f.resolution} (.${f.ext})</option>`).join('');
+                    
+                    selector.style.display = "block";
+                    document.getElementById('dlBtn').style.display = "block";
+                    status.style.display = "none";
+                } else {
+                    alert("Error: " + data.error);
+                }
+            } catch (e) {
+                alert("Server offline. Ensure Google Colab is running!");
             }
+            checkBtn.disabled = false;
         }
 
         async function forceDownload() {
             const fId = document.getElementById('formatSelector').value;
+            const dlBtn = document.getElementById('dlBtn');
+            dlBtn.innerText = "Generating Link...";
+
             const res = await fetch(`${API_URL}/download`, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
@@ -63,11 +86,16 @@
             });
             const data = await res.json();
             
-            // This is the trick to FORCE download
-            const a = document.createElement('a');
-            a.href = data.url;
-            a.setAttribute('download', 'video.mp4'); 
-            a.click();
+            // This creates a temporary link and 'clicks' it to force download
+            const link = document.createElement('a');
+            link.href = data.url;
+            link.target = "_blank";
+            link.setAttribute('download', ''); // Triggers browser download behavior
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            dlBtn.innerText = "Download Selected Quality";
         }
     </script>
 </body>
