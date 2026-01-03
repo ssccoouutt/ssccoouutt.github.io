@@ -3,99 +3,119 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TechZoneX | High Quality Downloader</title>
+    <title>TechZoneX | Premium Downloader</title>
     <style>
-        body { font-family: 'Segoe UI', sans-serif; background: #0f0f0f; color: white; text-align: center; padding: 20px; }
-        .container { background: #1e1e1e; padding: 30px; border-radius: 15px; max-width: 500px; margin: auto; border: 1px solid #333; }
-        input { width: 90%; padding: 12px; border-radius: 8px; border: 1px solid #444; background: #121212; color: white; margin-bottom: 15px; }
-        select { width: 95%; padding: 10px; margin: 15px 0; border-radius: 8px; display: none; background: #333; color: white; }
-        button { background: #ff0000; color: white; padding: 12px 25px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; width: 100%; }
-        #dlBtn { background: #28a745; display: none; margin-top: 10px; }
-        #status { color: #f1c40f; display: none; margin: 15px 0; }
-        img { width: 100%; border-radius: 10px; margin-top: 15px; display: none; }
+        :root { --accent: #3498db; --bg: #0b0e14; --card: #161b22; }
+        body { font-family: 'Inter', sans-serif; background: var(--bg); color: #c9d1d9; margin: 0; padding: 20px; }
+        .wrapper { max-width: 800px; margin: auto; }
+        .header { text-align: center; margin-bottom: 30px; }
+        .header h1 { color: white; font-size: 2.5rem; margin-bottom: 5px; }
+        
+        .main-card { background: var(--card); border-radius: 12px; border: 1px solid #30363d; padding: 25px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
+        .input-group { display: flex; gap: 10px; margin-bottom: 20px; }
+        input { flex: 1; background: #0d1117; border: 1px solid #30363d; color: white; padding: 12px; border-radius: 6px; }
+        button { background: var(--accent); color: white; border: none; padding: 12px 20px; border-radius: 6px; cursor: pointer; font-weight: 600; }
+        
+        #preview-area { display: none; margin-top: 25px; border-top: 1px solid #30363d; padding-top: 20px; }
+        video { width: 100%; border-radius: 8px; background: black; margin-bottom: 20px; }
+        
+        .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; text-align: left; }
+        select { background: #0d1117; color: white; border: 1px solid #30363d; padding: 10px; border-radius: 6px; width: 100%; }
+        .btn-download { background: #238636; width: 100%; margin-top: 10px; }
+        #status { color: #8b949e; margin-top: 10px; font-size: 0.9rem; }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>TechZoneX Pro</h1>
-        <input type="text" id="videoUrl" placeholder="Paste YouTube Link Here">
-        <button id="checkBtn" onclick="fetchQualities()">Check Available Qualities</button>
-        
-        <p id="status">Connecting to server...</p>
-        <img id="thumbnail" src="">
-        <h3 id="videoTitle"></h3>
+    <div class="wrapper">
+        <div class="header">
+            <h1>TechZoneX <span style="color:var(--accent)">PRO</span></h1>
+            <p>High-Quality Video Downloader & Player</p>
+        </div>
 
-        <select id="formatSelector"></select>
-        <button id="dlBtn" onclick="forceDownload()">Download Selected Quality</button>
+        <div class="main-card">
+            <div class="input-group">
+                <input type="text" id="videoUrl" placeholder="Paste YouTube link here...">
+                <button onclick="analyzeVideo()" id="analyzeBtn">Analyze</button>
+            </div>
+            <div id="status">Ready to process link...</div>
+
+            <div id="preview-area">
+                <video id="player" controls poster=""></video>
+                <div class="controls">
+                    <div>
+                        <label>Select Quality (FFmpeg Merged):</label>
+                        <select id="formatSelector"></select>
+                    </div>
+                    <div>
+                        <label>Action:</label>
+                        <button class="btn-download" id="dlBtn" onclick="initiateDownload()">Download High Quality</button>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
-        // PASTE YOUR NGROK URL HERE
-        const API_URL = "https://heapy-melynda-achingly.ngrok-free.dev"; 
-        let currentUrl = "";
+        const API_URL = "https://heapy-melynda-achingly.ngrok-free.dev"; // UPDATE THIS
+        let activeUrl = "";
 
-        async function fetchQualities() {
-            currentUrl = document.getElementById('videoUrl').value;
-            if(!currentUrl) return alert("Paste a link first!");
-
+        async function analyzeVideo() {
+            activeUrl = document.getElementById('videoUrl').value;
             const status = document.getElementById('status');
-            const selector = document.getElementById('formatSelector');
-            const checkBtn = document.getElementById('checkBtn');
-
-            status.style.display = "block";
-            checkBtn.disabled = true;
-
+            const preview = document.getElementById('preview-area');
+            
+            status.innerText = "Analyzing metadata and qualities...";
+            
             try {
                 const response = await fetch(`${API_URL}/get_formats`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ url: currentUrl })
+                    body: JSON.stringify({ url: activeUrl })
                 });
                 const data = await response.json();
 
                 if(data.formats) {
-                    document.getElementById('thumbnail').src = data.thumb;
-                    document.getElementById('thumbnail').style.display = "block";
-                    document.getElementById('videoTitle').innerText = data.title;
+                    status.innerText = `Found: ${data.title}`;
+                    document.getElementById('player').src = data.best_stream;
+                    document.getElementById('player').poster = data.thumb;
                     
-                    // Filter for unique resolutions to keep the list clean
-                    selector.innerHTML = data.formats.map(f => 
-                        `<option value="${f.format_id}">${f.resolution} (.${f.ext})</option>`).join('');
+                    const selector = document.getElementById('formatSelector');
+                    selector.innerHTML = data.formats
+                        .filter(f => f.resolution)
+                        .sort((a, b) => b.resolution - a.resolution)
+                        .map(f => `<option value="${f.format_id}">${f.resolution}p (${f.note || f.ext})</option>`)
+                        .join('');
                     
-                    selector.style.display = "block";
-                    document.getElementById('dlBtn').style.display = "block";
-                    status.style.display = "none";
-                } else {
-                    alert("Error: " + data.error);
+                    preview.style.display = "block";
                 }
             } catch (e) {
-                alert("Server offline. Ensure Google Colab is running!");
+                status.innerText = "Error connecting to server.";
             }
-            checkBtn.disabled = false;
         }
 
-        async function forceDownload() {
+        async function initiateDownload() {
+            const btn = document.getElementById('dlBtn');
             const fId = document.getElementById('formatSelector').value;
-            const dlBtn = document.getElementById('dlBtn');
-            dlBtn.innerText = "Generating Link...";
+            btn.innerText = "Merging with FFmpeg...";
+            btn.disabled = true;
 
-            const res = await fetch(`${API_URL}/download`, {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ url: currentUrl, format_id: fId })
-            });
-            const data = await res.json();
-            
-            // This creates a temporary link and 'clicks' it to force download
-            const link = document.createElement('a');
-            link.href = data.url;
-            link.target = "_blank";
-            link.setAttribute('download', ''); // Triggers browser download behavior
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            
-            dlBtn.innerText = "Download Selected Quality";
+            try {
+                const res = await fetch(`${API_URL}/download`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ url: activeUrl, format_id: fId })
+                });
+                const data = await res.json();
+                
+                const a = document.createElement('a');
+                a.href = data.url;
+                a.target = "_blank";
+                a.setAttribute('download', '');
+                a.click();
+            } finally {
+                btn.innerText = "Download High Quality";
+                btn.disabled = false;
+            }
         }
     </script>
 </body>
