@@ -3,120 +3,106 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TechZoneX | Premium Downloader</title>
+    <title>TechZoneX | Pro Downloader</title>
     <style>
-        :root { --accent: #3498db; --bg: #0b0e14; --card: #161b22; }
-        body { font-family: 'Inter', sans-serif; background: var(--bg); color: #c9d1d9; margin: 0; padding: 20px; }
-        .wrapper { max-width: 800px; margin: auto; }
-        .header { text-align: center; margin-bottom: 30px; }
-        .header h1 { color: white; font-size: 2.5rem; margin-bottom: 5px; }
-        
-        .main-card { background: var(--card); border-radius: 12px; border: 1px solid #30363d; padding: 25px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
-        .input-group { display: flex; gap: 10px; margin-bottom: 20px; }
-        input { flex: 1; background: #0d1117; border: 1px solid #30363d; color: white; padding: 12px; border-radius: 6px; }
-        button { background: var(--accent); color: white; border: none; padding: 12px 20px; border-radius: 6px; cursor: pointer; font-weight: 600; }
-        
-        #preview-area { display: none; margin-top: 25px; border-top: 1px solid #30363d; padding-top: 20px; }
-        video { width: 100%; border-radius: 8px; background: black; margin-bottom: 20px; }
-        
-        .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; text-align: left; }
-        select { background: #0d1117; color: white; border: 1px solid #30363d; padding: 10px; border-radius: 6px; width: 100%; }
-        .btn-download { background: #238636; width: 100%; margin-top: 10px; }
-        #status { color: #8b949e; margin-top: 10px; font-size: 0.9rem; }
+        :root { --accent: #ff0000; --bg: #0d1117; --card: #161b22; }
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg); color: white; text-align: center; padding: 20px; }
+        .container { background: var(--card); padding: 30px; border-radius: 12px; max-width: 600px; margin: auto; border: 1px solid #30363d; }
+        .input-box { display: flex; gap: 10px; margin-bottom: 20px; }
+        input { flex: 1; padding: 12px; border-radius: 6px; border: 1px solid #30363d; background: #010409; color: white; }
+        button { background: var(--accent); color: white; border: none; padding: 12px 20px; border-radius: 6px; cursor: pointer; font-weight: bold; }
+        video { width: 100%; border-radius: 8px; margin-top: 20px; display: none; background: #000; }
+        select { width: 100%; padding: 10px; margin-top: 20px; border-radius: 6px; display: none; background: #30363d; color: white; }
+        #dlBtn { background: #238636; width: 100%; margin-top: 15px; display: none; }
+        #status { margin: 15px 0; color: #8b949e; }
     </style>
 </head>
 <body>
-    <div class="wrapper">
-        <div class="header">
-            <h1>TechZoneX <span style="color:var(--accent)">PRO</span></h1>
-            <p>High-Quality Video Downloader & Player</p>
+    <div class="container">
+        <h1>TechZoneX <span style="color:var(--accent)">PRO</span></h1>
+        <div class="input-box">
+            <input type="text" id="videoUrl" placeholder="Paste YouTube link here...">
+            <button onclick="analyzeVideo()">Analyze</button>
         </div>
+        <p id="status">Ready.</p>
 
-        <div class="main-card">
-            <div class="input-group">
-                <input type="text" id="videoUrl" placeholder="Paste YouTube link here...">
-                <button onclick="analyzeVideo()" id="analyzeBtn">Analyze</button>
-            </div>
-            <div id="status">Ready to process link...</div>
-
-            <div id="preview-area">
-                <video id="player" controls poster=""></video>
-                <div class="controls">
-                    <div>
-                        <label>Select Quality (FFmpeg Merged):</label>
-                        <select id="formatSelector"></select>
-                    </div>
-                    <div>
-                        <label>Action:</label>
-                        <button class="btn-download" id="dlBtn" onclick="initiateDownload()">Download High Quality</button>
-                    </div>
-                </div>
-            </div>
-        </div>
+        <video id="player" controls></video>
+        
+        <select id="formatSelector"></select>
+        <button id="dlBtn" onclick="startDownload()">Download Merged High-Quality</button>
     </div>
 
     <script>
-        const API_URL = "https://heapy-melynda-achingly.ngrok-free.dev"; // UPDATE THIS
-        let activeUrl = "";
+        // UPDATE THIS URL FROM COLAB EVERY TIME YOU RESTART
+        const API_URL = "https://heapy-melynda-achingly.ngrok-free.dev"; 
 
         async function analyzeVideo() {
-            activeUrl = document.getElementById('videoUrl').value;
+            const url = document.getElementById('videoUrl').value;
             const status = document.getElementById('status');
-            const preview = document.getElementById('preview-area');
-            
-            status.innerText = "Analyzing metadata and qualities...";
+            if(!url) return alert("Please enter a URL");
+
+            status.innerText = "Connecting to Colab and fetching qualities...";
             
             try {
                 const response = await fetch(`${API_URL}/get_formats`, {
                     method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ url: activeUrl })
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url: url })
                 });
+                
                 const data = await response.json();
+                if(data.error) throw new Error(data.error);
 
-                if(data.formats) {
-                    status.innerText = `Found: ${data.title}`;
-                    document.getElementById('player').src = data.best_stream;
-                    document.getElementById('player').poster = data.thumb;
-                    
-                    const selector = document.getElementById('formatSelector');
-                    selector.innerHTML = data.formats
-                        .filter(f => f.resolution)
-                        .sort((a, b) => b.resolution - a.resolution)
-                        .map(f => `<option value="${f.format_id}">${f.resolution}p (${f.note || f.ext})</option>`)
-                        .join('');
-                    
-                    preview.style.display = "block";
-                }
-            } catch (e) {
-                status.innerText = "Error connecting to server.";
+                // Show Video Player
+                const player = document.getElementById('player');
+                player.src = data.best_stream;
+                player.style.display = "block";
+                
+                // Fill Select Box
+                const selector = document.getElementById('formatSelector');
+                selector.innerHTML = data.formats
+                    .sort((a,b) => b.resolution - a.resolution)
+                    .map(f => `<option value="${f.format_id}">${f.resolution}p - ${f.note} (.${f.ext})</option>`)
+                    .join('');
+                selector.style.display = "block";
+                document.getElementById('dlBtn').style.display = "block";
+                status.innerText = "Video Ready: " + data.title;
+
+            } catch (err) {
+                status.innerText = "Error: " + err.message;
+                console.error(err);
             }
         }
 
-        async function initiateDownload() {
+        async function startDownload() {
             const btn = document.getElementById('dlBtn');
+            const url = document.getElementById('videoUrl').value;
             const fId = document.getElementById('formatSelector').value;
-            btn.innerText = "Merging with FFmpeg...";
+            
+            btn.innerText = "Merging Audio + Video... Please wait";
             btn.disabled = true;
 
             try {
-                const res = await fetch(`${API_URL}/download`, {
+                const response = await fetch(`${API_URL}/download`, {
                     method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ url: activeUrl, format_id: fId })
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url: url, format_id: fId })
                 });
-                const data = await res.json();
+                const data = await response.json();
                 
+                // Force Download
                 const a = document.createElement('a');
                 a.href = data.url;
-                a.target = "_blank";
-                a.setAttribute('download', '');
+                a.setAttribute('download', 'video.mp4');
                 a.click();
+            } catch (err) {
+                alert("Download failed. Check if Colab is still running.");
             } finally {
-                btn.innerText = "Download High Quality";
+                btn.innerText = "Download Merged High-Quality";
                 btn.disabled = false;
             }
         }
     </script>
 </body>
 </html>
+
