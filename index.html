@@ -3,85 +3,74 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TechZoneX | Coming Soon</title>
+    <title>TechZoneX | Ultimate Downloader</title>
     <style>
-        body, html {
-            height: 100%;
-            margin: 0;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
-            color: white;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            text-align: center;
-        }
-
-        .container {
-            padding: 20px;
-            max-width: 600px;
-        }
-
-        h1 {
-            font-size: 3rem;
-            margin-bottom: 10px;
-            letter-spacing: 2px;
-        }
-
-        p {
-            font-size: 1.2rem;
-            opacity: 0.9;
-            line-height: 1.6;
-        }
-
-        .badge {
-            background: rgba(255, 255, 255, 0.2);
-            padding: 5px 15px;
-            border-radius: 20px;
-            font-size: 0.8rem;
-            text-transform: uppercase;
-            margin-bottom: 20px;
-            display: inline-block;
-        }
-
-        .contact-btn {
-            margin-top: 30px;
-            display: inline-block;
-            padding: 12px 30px;
-            color: #1e3c72;
-            background: white;
-            text-decoration: none;
-            border-radius: 5px;
-            font-weight: bold;
-            transition: transform 0.2s;
-        }
-
-        .contact-btn:hover {
-            transform: scale(1.05);
-        }
-
-        footer {
-            position: absolute;
-            bottom: 20px;
-            font-size: 0.9rem;
-            opacity: 0.6;
-        }
+        :root { --primary: #ff0000; --bg: #0f0f0f; --card: #1e1e1e; }
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg); color: white; margin: 0; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+        .container { background: var(--card); padding: 40px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); width: 100%; max-width: 450px; text-align: center; }
+        h1 { margin-top: 0; color: var(--primary); letter-spacing: 1px; }
+        input { width: 100%; padding: 12px; margin: 20px 0; border: 1px solid #333; border-radius: 8px; background: #121212; color: white; box-sizing: border-box; }
+        button { width: 100%; padding: 12px; border: none; border-radius: 8px; background: var(--primary); color: white; font-weight: bold; cursor: pointer; transition: 0.3s; }
+        button:hover { background: #cc0000; transform: translateY(-2px); }
+        #loader { display: none; margin-top: 20px; color: #aaa; font-style: italic; }
+        #result { margin-top: 25px; padding: 15px; border-radius: 10px; background: #252525; display: none; }
+        .download-btn { display: inline-block; margin-top: 15px; padding: 10px 20px; background: #2ecc71; color: white; text-decoration: none; border-radius: 5px; font-weight: bold; }
     </style>
 </head>
 <body>
 
     <div class="container">
-        <div class="badge">Official Launch Coming Soon</div>
         <h1>TechZoneX</h1>
-        <p>Something exciting is in the works. We are currently building a premier destination for tech enthusiasts. Stay tuned for our grand opening!</p>
+        <p>Enter YouTube Link below</p>
+        <input type="text" id="videoUrl" placeholder="https://www.youtube.com/watch?v=...">
+        <button onclick="processVideo()">Get Download Link</button>
         
-        <a href="mailto:info@techzonex.store" class="contact-btn">Get In Touch</a>
+        <div id="loader">Processing... this may take a moment</div>
+        
+        <div id="result">
+            <img id="thumb" src="" style="width:100%; border-radius:8px; margin-bottom:10px;">
+            <div id="videoTitle" style="font-weight:bold; margin-bottom:10px;"></div>
+            <a id="dlLink" href="" target="_blank" class="download-btn">Download Now</a>
+        </div>
     </div>
 
-    <footer>
-        &copy; 2026 TechZoneX. All rights reserved.
-    </footer>
+    <script>
+        // REPLACE THE URL BELOW with the one from your Google Colab
+        const API_URL = "https://heapy-melynda-achingly.ngrok-free.dev/"; 
 
+        async function processVideo() {
+            const url = document.getElementById('videoUrl').value;
+            const loader = document.getElementById('loader');
+            const result = document.getElementById('result');
+            
+            if(!url) return alert("Please paste a URL!");
+
+            loader.style.display = "block";
+            result.style.display = "none";
+
+            try {
+                const response = await fetch(`${API_URL}/download`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url: url })
+                });
+                
+                const data = await response.json();
+                
+                loader.style.display = "none";
+                if(data.url) {
+                    result.style.display = "block";
+                    document.getElementById('videoTitle').innerText = data.title;
+                    document.getElementById('thumb').src = data.thumbnail;
+                    document.getElementById('dlLink').href = data.url;
+                } else {
+                    alert("Error: " + data.error);
+                }
+            } catch (err) {
+                loader.style.display = "none";
+                alert("Server connection failed. Is your Google Colab running?");
+            }
+        }
+    </script>
 </body>
 </html>
-
