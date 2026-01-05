@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TechZoneX | Drive Command Center</title>
+    <title>TechZoneX | Ultimate Drive Suite</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
     <style>
@@ -13,8 +13,9 @@
         .glass-panel:hover { border-color: rgba(59, 130, 246, 0.5); transform: translateY(-2px); }
         .btn-glow { background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); transition: all 0.3s; }
         .btn-glow:hover { box-shadow: 0 0 20px rgba(37, 99, 235, 0.5); transform: scale(1.02); }
-        .input-dark { background: #0f172a !important; border: 1px solid #1e293b !important; color: white !important; transition: border-color 0.3s; }
-        .input-dark:focus { border-color: #3b82f6 !important; outline: none; }
+        .btn-cancel { background: rgba(239, 68, 68, 0.2); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.4); }
+        .btn-cancel:hover { background: rgba(239, 68, 68, 0.4); }
+        input { background: #0f172a !important; border: 1px solid #1e293b !important; color: white !important; font-size: 0.8rem !important; }
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
     </style>
@@ -44,9 +45,12 @@
 
         <!-- Live Monitor -->
         <div id="monitor-panel" class="hidden space-y-4">
-            <div class="flex items-center gap-2">
-                <i class="fas fa-microchip text-blue-500 animate-spin-slow"></i>
-                <h2 class="text-xs font-bold text-slate-500 uppercase tracking-widest">Active Processes</h2>
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                    <i class="fas fa-microchip text-blue-500 animate-spin-slow"></i>
+                    <h2 class="text-xs font-bold text-slate-500 uppercase tracking-widest">Active Processes</h2>
+                </div>
+                <button onclick="clearCompleted()" class="text-[10px] text-slate-500 hover:text-white underline">Clear All Completed</button>
             </div>
             <div id="task-list" class="grid grid-cols-1 lg:grid-cols-2 gap-4"></div>
         </div>
@@ -62,7 +66,7 @@
                 </div>
                 <h3 class="text-lg font-bold text-white">Recursive Clone</h3>
                 <input type="text" id="cp-src" placeholder="Source Folder ID/URL" class="w-full p-3 rounded-xl text-sm input-dark">
-                <input type="text" id="cp-dst" placeholder="Destination Folder ID/URL" class="w-full p-3 rounded-xl text-sm input-dark">
+                <input type="text" id="cp-dst" placeholder="Destination (Empty for Root)" class="w-full p-3 rounded-xl text-sm input-dark">
                 <button onclick="run('copy', {src:'cp-src', dst:'cp-dst'})" class="w-full py-3 btn-glow rounded-xl font-bold text-sm text-white">Start Cloning</button>
             </div>
 
@@ -137,6 +141,7 @@
 
     <script>
         const API = "https://simple-liana-techzone3201-048a28fa.koyeb.app";
+        const tasks = JSON.parse(localStorage.getItem('active_tasks') || '[]');
 
         function login() { window.location.href = API + "/auth/login"; }
 
@@ -154,6 +159,8 @@
                         <button onclick="localStorage.removeItem('drive_creds'); location.reload()" class="ml-2 text-slate-500 hover:text-white transition"><i class="fas fa-sign-out-alt"></i></button>
                     </div>`;
             }
+            // Restore tasks on reload
+            tasks.forEach(id => track(id));
         }
 
         async function run(action, fields) {
@@ -168,51 +175,101 @@
                     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
                 });
                 const data = await res.json();
+                
+                // Persist task ID
+                tasks.push(data.task_id);
+                localStorage.setItem('active_tasks', JSON.stringify(tasks));
+                
                 track(data.task_id);
             } catch(e) { alert("Error connecting to cloud engine."); }
         }
 
+        async function cancelTask(id) {
+            if(confirm("Terminate this task?")) {
+                await fetch(`${API}/api/cancel/${id}`, {method:'POST'});
+            }
+        }
+
+        function dismissTask(id, card) {
+            card.remove();
+            const idx = tasks.indexOf(id);
+            if(idx > -1) {
+                tasks.splice(idx, 1);
+                localStorage.setItem('active_tasks', JSON.stringify(tasks));
+            }
+            if(tasks.length === 0) document.getElementById('monitor-panel').classList.add('hidden');
+        }
+
+        function clearCompleted() {
+            document.querySelectorAll('.task-completed').forEach(c => {
+                const btn = c.querySelector('button[onclick^="dismissTask"]');
+                if(btn) btn.click();
+            });
+        }
+
         function track(id) {
             document.getElementById('monitor-panel').classList.remove('hidden');
+            
+            // Avoid duplicates on reload
+            if(document.getElementById(`card-${id}`)) return;
+
             const grid = document.getElementById('task-list');
             const card = document.createElement('div');
+            card.id = `card-${id}`;
             card.className = "bg-slate-900/50 border border-blue-500/20 p-5 rounded-2xl relative overflow-hidden transition-all duration-500";
             grid.appendChild(card);
 
             const timer = setInterval(async () => {
-                const r = await fetch(`${API}/api/status/${id}`);
-                const s = await r.json();
+                try {
+                    const r = await fetch(`${API}/api/status/${id}`);
+                    const s = await r.json();
 
-                // Dynamic Report Generator
-                let extra = "";
-                if(s.is_complete) {
-                    extra = `<div class="grid grid-cols-3 gap-2 mt-4 pt-4 border-t border-slate-800">`;
-                    for(let c in s.categories) extra += `<div class="bg-slate-950 p-2 rounded text-center"><div class="text-[9px] text-slate-500 uppercase">${c}</div><div class="text-xs font-bold text-white">${s.categories[c]}</div></div>`;
-                    if(s.meta && s.meta.size) extra += `<div class="col-span-3 text-center text-[10px] text-slate-400 mt-2">File Size: ${s.meta.size} bytes</div>`;
-                    extra += `</div>`;
-                    clearInterval(timer);
-                }
+                    // If server restarted and task lost, handle gracefully
+                    if(s.status === "Waiting" && tasks.includes(id)) {
+                        // Keep polling or mark as lost? Let's assume waiting for worker.
+                    }
 
-                card.innerHTML = `
-                    <div class="flex justify-between mb-3">
-                        <span class="text-[9px] font-black text-slate-500 uppercase tracking-[0.2em]">${s.action}</span>
-                        <span class="text-[9px] font-mono text-blue-400">#${id}</span>
-                    </div>
-                    <div class="text-xs font-bold text-white mb-2 truncate">${s.last_file || 'Preparing...'}</div>
-                    <div class="w-full bg-slate-950 h-1.5 rounded-full overflow-hidden">
-                        <div class="bg-blue-600 h-full transition-all duration-700 ease-out" style="width:${s.percent}%"></div>
-                    </div>
-                    <div class="flex justify-between mt-3 text-[10px] font-bold">
-                        <div class="text-slate-400">
-                            DONE: <span class="text-white">${s.current}</span>
-                            ${s.skipped > 0 ? `<span class="text-slate-600 mx-1">|</span> SKIP: <span class="text-orange-400">${s.skipped}</span>` : ''}
-                            ${s.remaining > 0 ? `<span class="text-slate-600 mx-1">|</span> LEFT: <span class="text-blue-500">${s.remaining}</span>` : ''}
+                    let metaInfo = "";
+                    if(s.action === "Copying") metaInfo = `<span class="text-blue-400">#${s.meta.src} <i class="fas fa-arrow-right mx-1"></i> ${s.meta.dst}</span>`;
+                    if(s.action === "Renaming") metaInfo = `<span class="text-purple-400">"${s.meta.find}" <i class="fas fa-arrow-right mx-1"></i> "${s.meta.with}"</span>`;
+                    if(s.action === "Distribution") metaInfo = `<span class="text-emerald-400">Syncing: ${s.meta.file}</span>`;
+
+                    let stats = "";
+                    let controls = `<button onclick="cancelTask('${id}')" class="text-[10px] font-bold text-red-400 border border-red-500/30 px-3 py-1 rounded hover:bg-red-500/10">CANCEL</button>`;
+                    
+                    if(s.is_complete || s.status === "Cancelled") {
+                        clearInterval(timer);
+                        card.classList.add('task-completed');
+                        controls = `<button onclick="dismissTask('${id}', this.closest('.bg-slate-900\\/50'))" class="text-[10px] font-bold text-slate-300 bg-slate-700 px-3 py-1 rounded hover:bg-slate-600">DISMISS REPORT</button>`;
+                        
+                        stats = `<div class="grid grid-cols-3 gap-2 mt-4 pt-4 border-t border-slate-800">`;
+                        for(let c in s.categories) stats += `<div class="bg-slate-950 p-2 rounded text-center"><div class="text-[9px] text-slate-500 uppercase">${c}</div><div class="text-xs font-bold text-white">${s.categories[c]}</div></div>`;
+                        if(s.meta && s.meta.size) stats += `<div class="col-span-3 text-center text-[10px] text-slate-400 mt-2">File Size: ${s.meta.size} bytes</div>`;
+                        stats += `</div>`;
+                    }
+
+                    card.innerHTML = `
+                        <div class="flex justify-between mb-3">
+                            <div class="flex flex-col"><span class="text-[9px] font-black text-slate-500 uppercase tracking-[0.2em]">${s.action}</span><div class="text-[9px] font-mono">${metaInfo}</div></div>
+                            <div class="flex items-center gap-3">
+                                ${controls}
+                                <span class="text-[9px] bg-slate-800 px-2 py-1 rounded text-slate-400">#${id}</span>
+                            </div>
                         </div>
-                        <div class="text-blue-500">${s.percent}%</div>
-                    </div>
-                    ${extra}
-                `;
-            }, 1500);
+                        <div class="text-xs font-bold text-white mb-2 truncate">${s.status} <span class="text-slate-500 font-normal"> - ${s.last_file || ''}</span></div>
+                        <div class="w-full bg-slate-950 h-1.5 rounded-full overflow-hidden">
+                            <div class="progress-line ${s.status === 'Cancelled' ? 'bg-red-500' : 'bg-blue-600'} h-full" style="width:${s.percent}%"></div>
+                        </div>
+                        <div class="flex justify-between mt-3 text-[10px] font-bold">
+                            <div class="text-slate-400 uppercase tracking-tighter">DONE:<span class="text-white">${s.current}</span> | SKIP:<span class="text-orange-400">${s.skipped}</span> | LEFT:<span class="text-blue-500">${s.remaining}</span></div>
+                            <div class="${s.status === 'Cancelled' ? 'text-red-500' : 'text-blue-500'}">${s.percent}%</div>
+                        </div>
+                        ${stats}
+                    `;
+                } catch(e) { 
+                    // Handle network error silently
+                }
+            }, 1800);
         }
 
         window.onload = initAuth;
