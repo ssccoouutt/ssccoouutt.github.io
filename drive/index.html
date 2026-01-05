@@ -1,177 +1,43 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TechZoneX | Cloud Automator</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <style>
-        .card-grad { background: linear-gradient(145deg, #1e293b, #0f172a); border: 1px solid #334155; }
-        .accent-glow { box-shadow: 0 0 15px rgba(59, 130, 246, 0.3); }
-    </style>
-</head>
-<body class="bg-[#020617] text-slate-200 min-h-screen font-sans">
+// Replace your existing window.onload and auth logic with this
+const API_BASE = "https://simple-liana-techzone3201-048a28fa.koyeb.app";
 
-    <!-- Header -->
-    <header class="border-b border-slate-800 bg-[#020617]/80 backdrop-blur-md sticky top-0 z-50">
-        <div class="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
-            <div class="flex items-center space-x-3">
-                <div class="bg-blue-600 p-2 rounded-lg accent-glow">
-                    <i class="fab fa-google-drive text-white text-xl"></i>
-                </div>
-                <h1 class="text-xl font-bold tracking-tight">TechZoneX <span class="text-blue-500">Automator</span></h1>
-            </div>
-            <div id="auth-status">
-                <button onclick="login()" class="bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded-full text-sm font-bold transition-all transform hover:scale-105">
-                    <i class="fas fa-link mr-2"></i> Connect Account
-                </button>
-            </div>
-        </div>
-    </header>
+function login() {
+    window.location.href = API_BASE + "/auth/login";
+}
 
-    <main class="max-w-6xl mx-auto p-6 space-y-8">
-        
-        <!-- Welcome Section -->
-        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-900/50 p-6 rounded-2xl border border-slate-800">
-            <div>
-                <h2 class="text-2xl font-bold text-white">Drive Management Console</h2>
-                <p class="text-slate-400 mt-1">Execute professional-grade background tasks on your Google Drive.</p>
-            </div>
-            <div class="flex gap-3">
-                <div class="px-4 py-2 bg-slate-800 rounded-lg border border-slate-700 text-xs">
-                    <span class="text-slate-500 uppercase block">Host</span>
-                    <span class="font-mono text-blue-400">Simple-liana...app</span>
-                </div>
-            </div>
-        </div>
-
-        <!-- Toolset Grid -->
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+function handleAuthData() {
+    // Check if we just arrived from a successful login
+    const hash = window.location.hash;
+    if (hash.includes('auth_data=')) {
+        try {
+            const rawData = hash.split('auth_data=')[1];
+            const decodedData = decodeURIComponent(rawData);
             
-            <!-- Smart Replace -->
-            <div class="card-grad p-6 rounded-2xl space-y-4">
-                <div class="flex items-center justify-between">
-                    <i class="fas fa-sync text-blue-500 text-2xl"></i>
-                    <span class="text-[10px] bg-blue-500/10 text-blue-400 px-2 py-1 rounded-full border border-blue-500/20">Smart Replace</span>
-                </div>
-                <h3 class="text-lg font-bold text-white">Batch Replacement</h3>
-                <p class="text-sm text-slate-400">Scan folders and swap files that match a specific size/type.</p>
-                <div class="space-y-3 pt-2">
-                    <input type="text" id="sr-target" placeholder="Target Folder URL" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm focus:border-blue-500 outline-none">
-                    <input type="text" id="sr-sample" placeholder="Sample URL (To Match)" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm focus:border-blue-500 outline-none">
-                    <input type="text" id="sr-replace" placeholder="Replacement URL" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm focus:border-blue-500 outline-none">
-                    <button onclick="runReplace()" class="w-full bg-blue-600 hover:bg-blue-700 py-3 rounded-xl font-bold text-sm transition-all">Execute Swap</button>
-                </div>
+            // Save the key to techzonex.store's storage
+            localStorage.setItem('drive_creds', decodedData);
+            
+            // Clean the URL so the key doesn't stay in history
+            window.history.replaceState(null, null, window.location.pathname);
+            
+            console.log("✅ Auth data captured successfully");
+        } catch (e) {
+            console.error("❌ Failed to parse auth data", e);
+        }
+    }
+
+    // Update the UI
+    const creds = localStorage.getItem('drive_creds');
+    if (creds) {
+        document.getElementById('auth-status').innerHTML = `
+            <div class="flex items-center space-x-3 bg-green-500/10 border border-green-500/20 px-4 py-2 rounded-full">
+                <span class="h-2 w-2 bg-green-500 rounded-full animate-pulse"></span>
+                <span class="text-xs font-bold text-green-500">Authorized</span>
+                <button onclick="localStorage.removeItem('drive_creds'); location.reload()" class="text-[10px] text-slate-500 underline ml-2 hover:text-white">Sign Out</button>
             </div>
+        `;
+    }
+}
 
-            <!-- Smart Distribution -->
-            <div class="card-grad p-6 rounded-2xl space-y-4">
-                <div class="flex items-center justify-between">
-                    <i class="fas fa-project-diagram text-green-500 text-2xl"></i>
-                    <span class="text-[10px] bg-green-500/10 text-green-400 px-2 py-1 rounded-full border border-green-500/20">Auto Distribute</span>
-                </div>
-                <h3 class="text-lg font-bold text-white">Smart Distribution</h3>
-                <p class="text-sm text-slate-400">Fill missing files across all subfolders automatically.</p>
-                <div class="space-y-3 pt-2">
-                    <input type="text" id="sd-target" placeholder="Root Target Folder" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm focus:border-green-500 outline-none">
-                    <input type="text" id="sd-src" placeholder="Source File to Paste" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm focus:border-green-500 outline-none">
-                    <button onclick="runDistro()" class="w-full bg-green-600 hover:bg-green-700 py-3 rounded-xl font-bold text-sm transition-all">Start Distribution</button>
-                </div>
-            </div>
-
-            <!-- Recursive Copy -->
-            <div class="card-grad p-6 rounded-2xl space-y-4">
-                <div class="flex items-center justify-between">
-                    <i class="fas fa-copy text-purple-500 text-2xl"></i>
-                    <span class="text-[10px] bg-purple-500/10 text-purple-400 px-2 py-1 rounded-full border border-purple-500/20">Cloner</span>
-                </div>
-                <h3 class="text-lg font-bold text-white">Recursive Copy</h3>
-                <p class="text-sm text-slate-400">Deep copy entire folder structures with high reliability.</p>
-                <div class="space-y-3 pt-2">
-                    <input type="text" id="cp-src" placeholder="Source Folder URL" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm focus:border-purple-500 outline-none">
-                    <input type="text" id="cp-dst" placeholder="Destination URL" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm focus:border-purple-500 outline-none">
-                    <button onclick="runCopy()" class="w-full bg-purple-600 hover:bg-purple-700 py-3 rounded-xl font-bold text-sm transition-all">Start Cloning</button>
-                </div>
-            </div>
-
-        </div>
-
-        <!-- Task Overlay -->
-        <div id="status-card" class="fixed bottom-6 right-6 bg-slate-800 border border-blue-500/50 p-4 rounded-xl shadow-2xl hidden max-w-sm">
-            <div class="flex items-center space-x-3">
-                <div class="animate-spin rounded-full h-5 w-5 border-2 border-blue-500 border-t-transparent"></div>
-                <span id="status-msg" class="text-sm text-white">Processing task in background...</span>
-            </div>
-        </div>
-
-    </main>
-
-    <script>
-        const API_BASE = "https://simple-liana-techzone3201-048a28fa.koyeb.app";
-
-        function login() {
-            window.location.href = API_BASE + "/auth/login";
-        }
-
-        async function apiCall(endpoint, body) {
-            const creds = localStorage.getItem('drive_creds');
-            if (!creds) return alert("❌ Connection Required: Please link your Google Drive.");
-
-            const statusCard = document.getElementById('status-card');
-            const statusMsg = document.getElementById('status-msg');
-            statusCard.classList.remove('hidden');
-
-            try {
-                const res = await fetch(API_BASE + endpoint, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ ...body, creds: creds })
-                });
-                const data = await res.json();
-                statusMsg.innerText = data.status || "Task Initialized";
-                setTimeout(() => statusCard.classList.add('hidden'), 5000);
-            } catch (e) {
-                alert("Backend offline or request failed.");
-                statusCard.classList.add('hidden');
-            }
-        }
-
-        function runReplace() {
-            apiCall('/api/smart_replace', {
-                target_url: document.getElementById('sr-target').value,
-                sample_url: document.getElementById('sr-sample').value,
-                replace_url: document.getElementById('sr-replace').value
-            });
-        }
-
-        function runDistro() {
-            apiCall('/api/smart_distribute', {
-                target_url: document.getElementById('sd-target').value,
-                source_url: document.getElementById('sd-src').value
-            });
-        }
-
-        function runCopy() {
-            apiCall('/api/copy_folder', {
-                source_url: document.getElementById('cp-src').value,
-                dest_url: document.getElementById('cp-dst').value
-            });
-        }
-
-        window.onload = () => {
-            if (localStorage.getItem('drive_creds')) {
-                document.getElementById('auth-status').innerHTML = `
-                    <div class="flex items-center space-x-3 bg-green-500/10 border border-green-500/20 px-4 py-2 rounded-full">
-                        <span class="h-2 w-2 bg-green-500 rounded-full"></span>
-                        <span class="text-xs font-bold text-green-500">Authorized</span>
-                        <button onclick="localStorage.removeItem('drive_creds'); location.reload()" class="text-[10px] text-slate-500 underline ml-2">Reset</button>
-                    </div>
-                `;
-            }
-        };
-    </script>
-</body>
-</html>
-
+// Ensure this runs when the page loads
+window.onload = handleAuthData;
 
