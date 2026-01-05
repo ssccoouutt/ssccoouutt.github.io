@@ -32,8 +32,8 @@
                 <div>
                     <h1 class="text-2xl font-bold text-white tracking-tight">TECHZONEX</h1>
                     <div class="flex items-center gap-2">
-                        <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                        <span class="text-xs font-medium text-slate-400 uppercase tracking-widest">System Online</span>
+                        <div id="status-dot" class="w-2 h-2 bg-red-500 rounded-full"></div>
+                        <span id="status-text" class="text-xs font-medium text-slate-400 uppercase tracking-widest">Connecting...</span>
                     </div>
                 </div>
             </div>
@@ -158,12 +158,30 @@
     </div>
 
     <script>
+        // *** IMPORTANT: CHANGE THIS URL TO YOUR ACTIVE KOYEB APP URL ***
         const API = "https://simple-liana-techzone3201-048a28fa.koyeb.app";
+        
         const tasks = JSON.parse(localStorage.getItem('active_tasks') || '[]');
 
         function login() { window.location.href = API + "/auth/login"; }
 
+        // CHECK SERVER CONNECTION ON LOAD
+        async function checkServer() {
+            try {
+                const r = await fetch(API + "/");
+                if(r.ok) {
+                    document.getElementById('status-dot').className = "w-2 h-2 bg-green-500 rounded-full animate-pulse";
+                    document.getElementById('status-text').innerText = "System Online";
+                }
+            } catch(e) {
+                document.getElementById('status-dot').className = "w-2 h-2 bg-red-600 rounded-full";
+                document.getElementById('status-text').innerText = "OFFLINE";
+                console.error("Server connection failed. Is the API URL correct?", e);
+            }
+        }
+
         function initAuth() {
+            checkServer(); // Run check
             const h = window.location.hash;
             if (h.includes('auth_data=')) {
                 localStorage.setItem('drive_creds', decodeURIComponent(h.split('auth_data=')[1]));
@@ -183,9 +201,13 @@
         async function fetchDuration(url) {
             if(!url) return;
             const creds = localStorage.getItem('drive_creds');
-            if (!creds) return;
+            if (!creds) return; // Silent return if not logged in
             
-            document.getElementById('tr-start').value = "Loading...";
+            // Visual feedback
+            const sInput = document.getElementById('tr-start');
+            const eInput = document.getElementById('tr-end');
+            const origStart = sInput.value;
+            sInput.value = "Loading...";
             
             try {
                 const res = await fetch(API + '/api/get_duration', {
@@ -194,13 +216,16 @@
                 });
                 const data = await res.json();
                 if(data.duration) {
-                    document.getElementById('tr-start').value = "00:00:00";
-                    document.getElementById('tr-end').value = data.duration;
+                    sInput.value = "00:00:00";
+                    eInput.value = data.duration;
                 } else {
-                    document.getElementById('tr-start').value = "00:00:00";
-                    document.getElementById('tr-end').value = ""; // Failed
+                    sInput.value = origStart || "00:00:00";
+                    alert("Could not fetch video metadata.");
                 }
-            } catch(e) { console.error(e); }
+            } catch(e) { 
+                sInput.value = origStart || "00:00:00";
+                console.error(e);
+            }
         }
 
         async function run(action, fields) {
@@ -214,11 +239,17 @@
                 const res = await fetch(API + '/api/run', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
                 });
+                
+                if(!res.ok) throw new Error("Server responded with error " + res.status);
+                
                 const data = await res.json();
                 tasks.push(data.task_id);
                 localStorage.setItem('active_tasks', JSON.stringify(tasks));
                 track(data.task_id);
-            } catch(e) { alert("Error connecting to cloud engine."); }
+            } catch(e) { 
+                alert("Connection failed! Is the backend running? check console.");
+                console.error(e);
+            }
         }
 
         async function cancelTask(id) {
@@ -242,14 +273,15 @@
         }
 
         function clearAllReports() {
-            // Clicks ALL dismiss buttons, whether completed or not
+            // Dismiss all visible cards
             document.querySelectorAll('button[onclick^="dismissTask"]').forEach(btn => btn.click());
             
-            // If no buttons found (maybe task is running?), we can force clear local storage
-            if(document.querySelectorAll('#task-list > div').length === 0) {
+            // Clean local storage for safety
+            if(tasks.length > 0) {
                  tasks.forEach(id => fetch(`${API}/api/dismiss/${id}`, {method:'POST'}).catch(e=>{}));
-                 localStorage.removeItem('active_tasks');
-                 location.reload();
+                 localStorage.setItem('active_tasks', '[]');
+                 document.getElementById('task-list').innerHTML = "";
+                 document.getElementById('monitor-panel').classList.add('hidden');
             }
         }
 
@@ -305,4 +337,20 @@
                                 <span class="text-[9px] bg-slate-800 px-2 py-1 rounded text-slate-400">#${id}</span>
                             </div>
                         </div>
-                        <div class="text-xs font-bold text-w
+                        <div class="text-xs font-bold text-white mb-2 truncate">${s.status} <span class="text-slate-500 font-normal"> - ${s.last_file || ''}</span></div>
+                        <div class="w-full bg-slate-950 h-1.5 rounded-full overflow-hidden">
+                            <div class="progress-line ${barColor} h-full" style="width:${s.percent}%"></div>
+                        </div>
+                        <div class="flex justify-between mt-3 text-[10px] font-bold">
+                            <div class="text-slate-400 uppercase tracking-tighter">DONE:<span class="text-white">${s.current}</span> | SKIP:<span class="text-orange-400">${s.skipped}</span> | LEFT:<span class="text-blue-500">${s.remaining}</span></div>
+                            <div class="${statusColor}">${s.percent}%</div>
+                        </div>
+                    `;
+                } catch(e) { }
+            }, 1000);
+        }
+
+        window.onload = initAuth;
+    </script>
+</body>
+</html>
