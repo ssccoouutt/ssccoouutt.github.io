@@ -7,13 +7,14 @@ import uuid
 import time
 import subprocess
 import io
+import datetime
 from flask import Flask, request, jsonify, redirect, session, send_from_directory, send_file
 from flask_cors import CORS
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseDownload
+from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
 from googleapiclient.errors import HttpError
 
 # --- CONFIGURATION ---
@@ -46,7 +47,7 @@ CORS(app)
 
 # Global State
 TASKS = {}
-TASK_FLAGS = {} # Global cancellation flags
+TASK_FLAGS = {}
 
 MIME_MAP = {
     'application/pdf': 'PDF',
@@ -73,7 +74,7 @@ class ProgressTracker:
         self.is_complete = False
         self.cancelled = False
         self.result_url = None
-        self.temp_files = [] 
+        self.temp_files = []
         self.save()
 
     def check_cancel(self):
@@ -110,10 +111,8 @@ class ProgressTracker:
             self.save()
 
     def save(self):
-        # Calculate percentage
         pct = 0
-        if self.is_complete: 
-            pct = 100
+        if self.is_complete: pct = 100
         elif self.total > 0:
             pct = round(((self.current + self.skipped) / self.total * 100), 1)
         
@@ -151,6 +150,11 @@ def extract_id(url):
     if 'id=' in url: return url.split('id=')[1].split('&')[0]
     return url
 
+def ms_to_timestamp(millis):
+    """Converts milliseconds to HH:MM:SS format"""
+    seconds = int(millis) // 1000
+    return str(datetime.timedelta(seconds=seconds))
+
 def list_recursive(service, folder_id, tracker=None):
     files = []
     page_token = None
@@ -170,7 +174,41 @@ def list_recursive(service, folder_id, tracker=None):
         except Exception: break
     return files
 
+def download_file(service, file_id, path, tracker=None):
+    request = service.files().get_media(fileId=file_id)
+    with io.FileIO(path, 'wb') as fh:
+        downloader = MediaIoBaseDownload(fh, request)
+        done = False
+        while not done:
+            if tracker: tracker.check_cancel()
+            status, done = downloader.next_chunk()
+
+def upload_file(service, path, name, parent_id=None):
+    file_metadata = {'name': name}
+    if parent_id: file_metadata['parents'] = [parent_id]
+    media = MediaFileUpload(path, mimetype='video/mp4', resumable=True)
+    return service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+
 # --- API ---
+
+@app.route('/api/get_duration', methods=['POST'])
+def get_video_duration():
+    try:
+        data = request.json
+        service = get_service(data['creds'])
+        fid = extract_id(data['url'])
+        meta = service.files().get(fileId=fid, fields='videoMediaMetadata').execute()
+        duration_ms = meta.get('videoMediaMetadata', {}).get('durationMillis')
+        if not duration_ms: return jsonify({"error": "Not a video or no duration data"}), 400
+        
+        fmt_duration = ms_to_timestamp(duration_ms)
+        # Pad with leading zero if needed (e.g., 5:00 -> 05:00)
+        if len(fmt_duration.split(":")) == 2: fmt_duration = "00:" + fmt_duration
+        if len(fmt_duration) == 7: fmt_duration = "0" + fmt_duration
+            
+        return jsonify({"duration": fmt_duration})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/run', methods=['POST'])
 def handle_run():
@@ -182,14 +220,16 @@ def handle_run():
         try:
             service = get_service(data['creds'])
             
+            # --- ACTION LOGIC ---
             if action == "copy":
                 sid = extract_id(data['src'])
                 did = extract_id(data['dst']) or 'root'
-                tr = ProgressTracker(task_id, 0, "Copying", {"src": sid[:8], "dst": "Root" if did=='root' else did[:8]})
+                tr = ProgressTracker(task_id, 0, "Copying", {"src": sid[:8], "dst": did[:8]})
                 all_items = list_recursive(service, sid, tr)
                 tr.total = len(all_items)
                 tr.save()
-
+                
+                # ... (Existing Copy Logic) ...
                 def clone(s_id, p_id):
                     tr.check_cancel()
                     m = service.files().get(fileId=s_id, fields="name").execute()
@@ -204,6 +244,11 @@ def handle_run():
                             tr.update(it['name'], it['mimeType'])
                 clone(sid, did)
                 tr.complete()
+
+            # ... (Other actions: rename, count, automated, info, smart_replace, distribute remain same) ...
+            # I am condensing them for brevity, assuming you have the previous code. 
+            # If you copy-paste, ensure previous logic is here. 
+            # I will include them to ensure the file is complete.
 
             elif action == "rename":
                 fid, s, r = extract_id(data['url']), data['search'], data['replace']
@@ -286,47 +331,92 @@ def handle_run():
                     else: tr.update(f"Folder-{fid['id'][:5]}", "Folders", is_skipped=True)
                 tr.complete()
 
+            # --- NEW: TRIM VIDEO ---
             elif action == "trim":
                 file_id = extract_id(data['url'])
-                tr = ProgressTracker(task_id, 3, "Trim Video", {"id": file_id[:8]})
+                start_time = data.get('start', '00:00:00')
+                end_time = data.get('end', '00:00:10')
                 
+                tr = ProgressTracker(task_id, 4, "Trim Video", {"id": file_id[:8]})
                 temp_in = os.path.join(TEMP_DIR, f"in_{task_id}.mp4")
                 temp_out = os.path.join(TEMP_DIR, f"trim_{task_id}.mp4")
                 tr.temp_files = [temp_in, temp_out]
-                
-                tr.status = "Downloading from Drive..."
+
+                tr.status = "Downloading..."
                 tr.save()
-                request = service.files().get_media(fileId=file_id)
-                with io.FileIO(temp_in, 'wb') as fh:
-                    downloader = MediaIoBaseDownload(fh, request)
-                    done = False
-                    while not done:
-                        tr.check_cancel() # Check cancel during download
-                        status, done = downloader.next_chunk()
+                download_file(service, file_id, temp_in, tr)
                 tr.current = 1
                 tr.save()
 
-                tr.check_cancel() # Check cancel before FFmpeg
-                
-                tr.status = "Trimming (ffmpeg)..."
+                tr.status = "Trimming (FFmpeg)..."
                 tr.save()
-                cmd = f"ffmpeg -i {temp_in} -t 3 -c copy {temp_out} -y"
+                # Use -ss (start) and -to (end)
+                cmd = f"ffmpeg -i {temp_in} -ss {start_time} -to {end_time} -c copy {temp_out} -y"
                 process = subprocess.run(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                
-                if process.returncode != 0:
-                    raise Exception("FFmpeg failed. Is it installed in Docker?")
-                
+                if process.returncode != 0: raise Exception("FFmpeg failed")
                 tr.current = 2
                 tr.save()
 
+                tr.status = "Uploading to Drive..."
+                tr.save()
+                file_name = f"Trimmed_{start_time.replace(':','')}-{end_time.replace(':','')}.mp4"
+                up_file = upload_file(service, temp_out, file_name)
+                tr.current = 3
+                tr.save()
+
+                # Clean input, keep output for download
                 if os.path.exists(temp_in): os.remove(temp_in)
                 
+                tr.current = 4
+                tr.complete(status="Uploaded & Ready", result_url=f"{SERVER_DOMAIN}/api/download/{task_id}")
+
+            # --- NEW: MERGE VIDEOS ---
+            elif action == "merge":
+                id1 = extract_id(data['src1'])
+                id2 = extract_id(data['src2'])
+                
+                tr = ProgressTracker(task_id, 5, "Merge Videos")
+                f1 = os.path.join(TEMP_DIR, f"m1_{task_id}.mp4")
+                f2 = os.path.join(TEMP_DIR, f"m2_{task_id}.mp4")
+                f_out = os.path.join(TEMP_DIR, f"merged_{task_id}.mp4")
+                list_file = os.path.join(TEMP_DIR, f"list_{task_id}.txt")
+                tr.temp_files = [f1, f2, f_out, list_file]
+
+                tr.status = "Downloading Video 1..."
+                tr.save()
+                download_file(service, id1, f1, tr)
+                tr.current = 1
+                
+                tr.status = "Downloading Video 2..."
+                tr.save()
+                download_file(service, id2, f2, tr)
+                tr.current = 2
+                tr.save()
+
+                tr.status = "Merging..."
+                tr.save()
+                with open(list_file, 'w') as f:
+                    f.write(f"file '{f1}'\nfile '{f2}'")
+                
+                cmd = f"ffmpeg -f concat -safe 0 -i {list_file} -c copy {f_out} -y"
+                process = subprocess.run(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                if process.returncode != 0: raise Exception("Merge failed (codec mismatch?)")
                 tr.current = 3
-                tr.complete(status="Ready to Download", result_url=f"{SERVER_DOMAIN}/api/download/{task_id}")
+
+                tr.status = "Uploading to Drive..."
+                tr.save()
+                upload_file(service, f_out, "Merged_Video.mp4")
+                tr.current = 4
+                
+                # Cleanup inputs
+                if os.path.exists(f1): os.remove(f1)
+                if os.path.exists(f2): os.remove(f2)
+                
+                tr.current = 5
+                tr.complete(status="Uploaded", result_url=f"{SERVER_DOMAIN}/api/download/{task_id}")
 
         except Exception as e:
             msg = str(e)
-            # Ensure final status is updated correctly
             if "Cancelled" in msg or TASK_FLAGS.get(task_id):
                 TASKS[task_id]['status'] = "Cancelled"
                 TASKS[task_id]['cancelled'] = True
@@ -358,11 +448,11 @@ def dismiss_task(tid):
 @app.route('/api/download/<tid>', methods=['GET'])
 def download_result(tid):
     if tid not in TASKS: return "Task not found", 404
-    if 'temp_files' in TASKS[tid] and len(TASKS[tid]['temp_files']) > 1:
-        out_file = TASKS[tid]['temp_files'][1]
-        if os.path.exists(out_file):
-            return send_file(out_file, as_attachment=True, download_name="trimmed_video.mp4")
-    return "File not found", 404
+    # Find output file (usually the one remaining in temp_files)
+    for f in TASKS[tid].get('temp_files', []):
+        if os.path.exists(f) and ("trim" in f or "merged" in f):
+            return send_file(f, as_attachment=True, download_name="video_output.mp4")
+    return "File cleaned up or missing", 404
 
 @app.route('/api/status/<tid>')
 def get_status(tid): return jsonify(TASKS.get(tid, {"status": "Waiting", "is_complete": False}))
@@ -391,4 +481,3 @@ def s(): return send_from_directory('drive', 'index.html')
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 8000)))
-
