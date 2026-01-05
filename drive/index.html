@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TechZoneX | Drive Automator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .glass { background: rgba(22, 27, 34, 0.8); backdrop-filter: blur(10px); }
+        .btn-gradient { background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); transition: all 0.3s ease; }
+        .btn-gradient:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(37, 99, 235, 0.4); }
+    </style>
+</head>
+<body class="bg-[#0d1117] text-gray-200 min-h-screen">
+
+    <nav class="border-b border-gray-800 bg-[#0d1117] sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
+            <div class="flex items-center space-x-2">
+                <i class="fab fa-google-drive text-blue-500 text-2xl"></i>
+                <h1 class="text-xl font-bold tracking-tight">TechZoneX <span class="text-blue-500">Drive</span></h1>
+            </div>
+            <div id="auth-section">
+                <button onclick="login()" class="btn-gradient px-5 py-2 rounded-full text-sm font-semibold flex items-center">
+                    <i class="fas fa-plug mr-2"></i> Connect Google Account
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <main class="max-w-6xl mx-auto p-6 space-y-8">
+        
+        <!-- Stats/Info Row -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="bg-[#161b22] border border-gray-800 p-4 rounded-xl flex items-center">
+                <div class="bg-blue-500/10 p-3 rounded-lg mr-4"><i class="fas fa-link text-blue-500"></i></div>
+                <div>
+                    <p class="text-xs text-gray-400">Backend Status</p>
+                    <p class="text-sm font-bold text-green-500">Online & Connected</p>
+                </div>
+            </div>
+            <div class="bg-[#161b22] border border-gray-800 p-4 rounded-xl flex items-center md:col-span-2">
+                <div class="bg-purple-500/10 p-3 rounded-lg mr-4"><i class="fas fa-server text-purple-500"></i></div>
+                <div>
+                    <p class="text-xs text-gray-400">Target Host</p>
+                    <p class="text-sm font-mono truncate text-gray-300">Simple-liana-techzone3201-048a28fa.koyeb.app</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Tool Grid -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            
+            <!-- Tool: Recursive Copy -->
+            <div class="bg-[#161b22] border border-gray-800 rounded-2xl p-6 hover:border-blue-500/50 transition">
+                <div class="flex items-center justify-between mb-6">
+                    <h3 class="font-bold flex items-center"><i class="fas fa-folder-tree mr-2 text-blue-400"></i> Recursive Copy</h3>
+                    <span class="text-[10px] bg-blue-500/20 text-blue-400 px-2 py-1 rounded">Automation</span>
+                </div>
+                <div class="space-y-4">
+                    <input type="text" id="cp-src" placeholder="Source Folder URL" class="w-full bg-[#0d1117] border border-gray-700 rounded-lg p-3 text-sm focus:outline-none focus:border-blue-500">
+                    <input type="text" id="cp-dst" placeholder="Destination Folder URL" class="w-full bg-[#0d1117] border border-gray-700 rounded-lg p-3 text-sm focus:outline-none focus:border-blue-500">
+                    <button onclick="runCopy()" class="w-full btn-gradient py-3 rounded-lg text-sm font-bold mt-2">Execute Copy</button>
+                </div>
+            </div>
+
+            <!-- Tool: Smart Replace -->
+            <div class="bg-[#161b22] border border-gray-800 rounded-2xl p-6 hover:border-yellow-500/50 transition">
+                <div class="flex items-center justify-between mb-6">
+                    <h3 class="font-bold flex items-center"><i class="fas fa-repeat mr-2 text-yellow-400"></i> Smart Replace</h3>
+                    <span class="text-[10px] bg-yellow-500/20 text-yellow-400 px-2 py-1 rounded">Size Match</span>
+                </div>
+                <div class="space-y-3">
+                    <input type="text" id="sr-target" placeholder="Scan Folder URL" class="w-full bg-[#0d1117] border border-gray-700 rounded-lg p-2.5 text-xs">
+                    <input type="text" id="sr-sample" placeholder="Sample URL (Match Size/Mime)" class="w-full bg-[#0d1117] border border-gray-700 rounded-lg p-2.5 text-xs">
+                    <input type="text" id="sr-replace" placeholder="Replacement URL" class="w-full bg-[#0d1117] border border-gray-700 rounded-lg p-2.5 text-xs">
+                    <button onclick="runReplace()" class="w-full bg-yellow-600 hover:bg-yellow-700 py-3 rounded-lg text-sm font-bold mt-2 text-white">Replace All Matches</button>
+                </div>
+            </div>
+
+            <!-- Tool: Smart Distribution -->
+            <div class="bg-[#161b22] border border-gray-800 rounded-2xl p-6 hover:border-green-500/50 transition">
+                <div class="flex items-center justify-between mb-6">
+                    <h3 class="font-bold flex items-center"><i class="fas fa-network-wired mr-2 text-green-400"></i> Smart Distribute</h3>
+                    <span class="text-[10px] bg-green-500/20 text-green-400 px-2 py-1 rounded">Folder Sync</span>
+                </div>
+                <div class="space-y-4">
+                    <input type="text" id="sd-target" placeholder="Root Target Folder" class="w-full bg-[#0d1117] border border-gray-700 rounded-lg p-3 text-sm focus:outline-none">
+                    <input type="text" id="sd-src" placeholder="Source File to Distribute" class="w-full bg-[#0d1117] border border-gray-700 rounded-lg p-3 text-sm focus:outline-none">
+                    <button onclick="runDistro()" class="w-full bg-green-600 hover:bg-green-700 py-3 rounded-lg text-sm font-bold mt-2 text-white">Fill Missing Folders</button>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Global Status -->
+        <div id="status-card" class="bg-blue-500/10 border border-blue-500/30 p-4 rounded-xl hidden">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center">
+                    <div class="animate-spin h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full mr-3"></div>
+                    <span id="status-msg" class="text-sm font-medium text-blue-400">Process running in cloud background...</span>
+                </div>
+                <button onclick="this.parentElement.parentElement.classList.add('hidden')" class="text-blue-400 hover:text-white"><i class="fas fa-times"></i></button>
+            </div>
+        </div>
+
+    </main>
+
+    <script>
+        // HARDCODED KOYEB BACKEND
+        const BACKEND_URL = "https://simple-liana-techzone3201-048a28fa.koyeb.app";
+
+        function login() {
+            window.location.href = BACKEND_URL + "/auth/login";
+        }
+
+        async function apiCall(endpoint, body) {
+            const creds = localStorage.getItem('drive_creds');
+            if (!creds) return alert("❌ Error: Connect your Google Drive first!");
+
+            const statusCard = document.getElementById('status-card');
+            const statusMsg = document.getElementById('status-msg');
+            statusCard.classList.remove('hidden');
+            statusMsg.innerText = "Connecting to Koyeb backend...";
+
+            try {
+                const res = await fetch(BACKEND_URL + endpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ...body, creds: creds })
+                });
+                const data = await res.json();
+                statusMsg.innerText = data.status || "Task initialized successfully.";
+            } catch (e) {
+                statusMsg.innerText = "Connection failed. Ensure backend is running.";
+                alert("Backend Error: " + e.message);
+            }
+        }
+
+        function runCopy() {
+            apiCall('/api/copy_recursive', {
+                source_url: document.getElementById('cp-src').value,
+                dest_url: document.getElementById('cp-dst').value
+            });
+        }
+
+        function runReplace() {
+            apiCall('/api/smart_replace', {
+                target_url: document.getElementById('sr-target').value,
+                sample_url: document.getElementById('sr-sample').value,
+                replace_url: document.getElementById('sr-replace').value
+            });
+        }
+
+        function runDistro() {
+            apiCall('/api/smart_distribute', {
+                target_url: document.getElementById('sd-target').value,
+                source_url: document.getElementById('sd-src').value
+            });
+        }
+
+        // Check if just logged in
+        window.onload = () => {
+            const creds = localStorage.getItem('drive_creds');
+            if (creds) {
+                document.getElementById('auth-section').innerHTML = `
+                    <div class="flex items-center bg-green-500/10 text-green-500 px-4 py-2 rounded-full border border-green-500/20">
+                        <i class="fas fa-check-circle mr-2"></i> Authorized
+                        <button onclick="localStorage.removeItem('drive_creds'); location.reload()" class="ml-4 text-xs underline opacity-70 hover:opacity-100">Reset</button>
+                    </div>
+                `;
+            }
+        };
+    </script>
+</body>
+</html>
+
