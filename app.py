@@ -3,7 +3,7 @@ import json
 import logging
 import threading
 import urllib.parse
-from flask import Flask, request, jsonify, redirect, url_for, session, send_from_directory
+from flask import Flask, request, jsonify, redirect, session, send_from_directory
 from flask_cors import CORS
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
@@ -13,6 +13,7 @@ from googleapiclient.errors import HttpError
 
 # --- CONFIGURATION ---
 FRONTEND_URL = "https://techzonex.store/drive"
+SERVER_DOMAIN = "https://simple-liana-techzone3201-048a28fa.koyeb.app"
 
 RAW_CREDENTIALS = {
     "web": {
@@ -22,24 +23,28 @@ RAW_CREDENTIALS = {
         "token_uri": "https://oauth2.googleapis.com/token",
         "auth_provider_x509_cert_url": "https://www.googleapis.com/view/certs",
         "client_secret": "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",
-        "redirect_uris": ["https://simple-liana-techzone3201-048a28fa.koyeb.app/callback"],
-        "javascript_origins": ["https://simple-liana-techzone3201-048a28fa.koyeb.app", "https://techzonex.store"]
+        "redirect_uris": [f"{SERVER_DOMAIN}/callback"],
+        "javascript_origins": [SERVER_DOMAIN, "https://techzonex.store"]
     }
 }
 
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1' 
 SCOPES = ["https://www.googleapis.com/auth/drive"]
-SERVER_DOMAIN = "https://simple-liana-techzone3201-048a28fa.koyeb.app"
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
 CORS(app)
 
 @app.route('/')
-def health_check():
+def health():
     return "TechZoneX Drive Engine Active", 200
 
-# --- AUTH ROUTES ---
+@app.route('/drive')
+@app.route('/drive/index.html')
+def serve_drive():
+    return send_from_directory('drive', 'index.html')
+
+# --- AUTHENTICATION ---
 
 @app.route('/auth/login')
 def login():
@@ -61,19 +66,15 @@ def callback():
         flow.fetch_token(authorization_response=request.url)
         creds = flow.credentials
         
-        # Encode the credentials to pass safely in the URL
+        # Pass the credentials back to the professional domain via URL Hash
         creds_data = urllib.parse.quote(creds.to_json())
-        
-        # Redirect back to techzonex.store with the key in the "hash" (#)
-        # This keeps the key on the client-side and avoids server logs
         return redirect(f"{FRONTEND_URL}#auth_data={creds_data}")
-        
     except Exception as e:
         return f"Callback Error: {str(e)}", 500
 
-# --- DRIVE API LOGIC ---
+# --- DRIVE ENGINE ---
 
-def get_drive_service(creds_json):
+def get_service(creds_json):
     creds = Credentials.from_authorized_user_info(json.loads(creds_json), SCOPES)
     if creds and creds.expired and creds.refresh_token:
         creds.refresh(Request())
@@ -86,89 +87,68 @@ def extract_id(url):
     if 'id=' in url: return url.split('id=')[1].split('&')[0]
     return url
 
-@app.route('/api/list_info', methods=['POST'])
-def get_info():
-    try:
-        data = request.json
-        service = get_drive_service(data['creds'])
-        file_id = extract_id(data['url'])
-        meta = service.files().get(fileId=file_id, fields='name,size,mimeType').execute()
-        return jsonify(meta)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 400
-
 @app.route('/api/smart_replace', methods=['POST'])
 def smart_replace():
     data = request.json
-    creds, target_url, sample_url, replace_url = data['creds'], data['target_url'], data['sample_url'], data['replace_url']
     def task():
         try:
-            service = get_drive_service(creds)
-            sample_meta = service.files().get(fileId=extract_id(sample_url), fields='size,mimeType').execute()
-            s_size, s_mime = sample_meta.get('size'), sample_meta.get('mimeType')
-            replace_id = extract_id(replace_url)
-            def recurse(folder_id):
-                query = f"'{folder_id}' in parents and trashed = false"
-                items = service.files().list(q=query, fields="files(id, name, size, mimeType, parents)").execute().get('files', [])
-                for item in items:
-                    if item['mimeType'] == 'application/vnd.google-apps.folder':
-                        recurse(item['id'])
-                    elif item.get('size') == s_size and item.get('mimeType') == s_mime:
-                        p_id = item['parents'][0] if 'parents' in item else None
-                        try:
-                            service.files().delete(fileId=item['id']).execute()
-                            service.files().copy(fileId=replace_id, body={"name": item['name'], "parents": [p_id] if p_id else []}).execute()
-                        except: pass
-            recurse(extract_id(target_url))
+            service = get_service(data['creds'])
+            sample = service.files().get(fileId=extract_id(data['sample_url']), fields='size,mimeType').execute()
+            s_size, s_mime, r_id = sample.get('size'), sample.get('mimeType'), extract_id(data['replace_url'])
+            
+            def recurse(fid):
+                q = f"'{fid}' in parents and trashed = false"
+                items = service.files().list(q=q, fields="files(id, name, size, mimeType, parents)").execute().get('files', [])
+                for it in items:
+                    if it['mimeType'] == 'application/vnd.google-apps.folder': recurse(it['id'])
+                    elif it.get('size') == s_size and it.get('mimeType') == s_mime:
+                        pid = it['parents'][0] if 'parents' in it else None
+                        service.files().delete(fileId=it['id']).execute()
+                        service.files().copy(fileId=r_id, body={"name": it['name'], "parents": [pid] if pid else []}).execute()
+            recurse(extract_id(data['target_url']))
         except: pass
     threading.Thread(target=task).start()
-    return jsonify({"status": "Task running in background"})
+    return jsonify({"status": "Smart Replacement Task Started"})
 
 @app.route('/api/smart_distribute', methods=['POST'])
 def smart_distribute():
     data = request.json
-    creds, root_url, source_url = data['creds'], data['target_url'], data['source_url']
     def task():
         try:
-            service = get_drive_service(creds)
-            src_id = extract_id(source_url)
-            src_meta = service.files().get(fileId=src_id, fields='name,size,mimeType').execute()
-            def distribute(folder_id):
-                q = f"'{folder_id}' in parents and trashed = false and size = '{src_meta['size']}' and mimeType = '{src_meta['mimeType']}'"
+            service = get_service(data['creds'])
+            sid = extract_id(data['source_url'])
+            smeta = service.files().get(fileId=sid, fields='name,size,mimeType').execute()
+            
+            def dist(fid):
+                q = f"'{fid}' in parents and trashed = false and size = '{smeta['size']}'"
                 if not service.files().list(q=q).execute().get('files', []):
-                    try:
-                        service.files().copy(fileId=src_id, body={"name": src_meta['name'], "parents": [folder_id]}).execute()
-                    except: pass
-                sq = f"'{folder_id}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
-                subs = service.files().list(q=sq).execute().get('files', [])
-                for s in subs: distribute(s['id'])
-            distribute(extract_id(root_url))
+                    service.files().copy(fileId=sid, body={"name": smeta['name'], "parents": [fid]}).execute()
+                sq = f"'{fid}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+                for s in service.files().list(q=sq).execute().get('files', []): dist(s['id'])
+            dist(extract_id(data['target_url']))
         except: pass
     threading.Thread(target=task).start()
-    return jsonify({"status": "Task running in background"})
+    return jsonify({"status": "Smart Distribution Task Started"})
 
 @app.route('/api/copy_folder', methods=['POST'])
 def copy_folder():
     data = request.json
-    creds, src_url, dst_url = data['creds'], data['source_url'], data['dest_url']
     def task():
         try:
-            service = get_drive_service(creds)
-            def deep_copy(source_id, target_parent_id):
-                meta = service.files().get(fileId=source_id, fields="name").execute()
-                new_id = service.files().create(body={"name": meta["name"], "mimeType": "application/vnd.google-apps.folder", "parents": [target_parent_id] if target_parent_id else []}, fields="id").execute()["id"]
-                res = service.files().list(q=f"'{source_id}' in parents and trashed = false", fields="files(id, name, mimeType)").execute()
-                for item in res.get("files", []):
-                    if item["mimeType"] == "application/vnd.google-apps.folder":
-                        deep_copy(item["id"], new_id)
-                    else:
-                        try: service.files().copy(fileId=item["id"], body={"name": item["name"], "parents": [new_id]}).execute()
-                        except: pass
-            deep_copy(extract_id(src_url), extract_id(dst_url))
+            service = get_service(data['creds'])
+            def clone(sid, pid):
+                m = service.files().get(fileId=sid, fields="name").execute()
+                nid = service.files().create(body={"name": m["name"], "mimeType": "application/vnd.google-apps.folder", "parents": [pid] if pid else []}, fields="id").execute()["id"]
+                res = service.files().list(q=f"'{sid}' in parents and trashed = false", fields="files(id, name, mimeType)").execute()
+                for it in res.get("files", []):
+                    if it["mimeType"] == "application/vnd.google-apps.folder": clone(it["id"], nid)
+                    else: service.files().copy(fileId=it["id"], body={"name": it["name"], "parents": [nid]}).execute()
+            clone(extract_id(data['source_url']), extract_id(data['dest_url']))
         except: pass
     threading.Thread(target=task).start()
-    return jsonify({"status": "Task running in background"})
+    return jsonify({"status": "Recursive Copy Task Started"})
 
 if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 8000))
-    app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 8000)))
+
+
