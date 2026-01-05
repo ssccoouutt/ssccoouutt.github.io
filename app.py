@@ -5,17 +5,21 @@ import threading
 import urllib.parse
 import uuid
 import time
-from flask import Flask, request, jsonify, redirect, session, send_from_directory
+import subprocess
+import io
+from flask import Flask, request, jsonify, redirect, session, send_from_directory, send_file
 from flask_cors import CORS
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseDownload
 from googleapiclient.errors import HttpError
 
 # --- CONFIGURATION ---
 FRONTEND_URL = "https://techzonex.store/drive"
 SERVER_DOMAIN = "https://simple-liana-techzone3201-048a28fa.koyeb.app"
+TEMP_DIR = "/tmp"  # Directory for video processing
 
 UNPOSTED_FOLDER_ID = "14tf687_8F4o2oYJTqyCZmvJjq45jRliy"
 SECOND_SOURCE_FOLDER_ID = "12V7EnRIYcSgEtt0PR5fhV8cO22nzYuiv"
@@ -40,7 +44,9 @@ app = Flask(__name__)
 app.secret_key = os.urandom(24)
 CORS(app)
 
+# Global State
 TASKS = {}
+TASK_FLAGS = {} # Global cancellation flags
 
 MIME_MAP = {
     'application/pdf': 'PDF',
@@ -66,10 +72,15 @@ class ProgressTracker:
         self.start_time = time.time()
         self.is_complete = False
         self.cancelled = False
+        self.result_url = None
+        self.temp_files = [] # Track files to delete on dismiss
         self.save()
 
     def check_cancel(self):
-        if self.cancelled: raise Exception("Task Cancelled by User")
+        # Check global flag
+        if TASK_FLAGS.get(self.task_id): 
+            self.cancelled = True
+            raise Exception("Task Cancelled by User")
 
     def update_scan(self, count):
         self.check_cancel()
@@ -89,9 +100,10 @@ class ProgressTracker:
             self.categories[cat] = self.categories.get(cat, 0) + 1
         self.save()
 
-    def complete(self, status="Completed"):
+    def complete(self, status="Completed", result_url=None):
         self.is_complete = True
         self.status = status
+        if result_url: self.result_url = result_url
         self.save()
 
     def save(self):
@@ -102,13 +114,15 @@ class ProgressTracker:
             "current": self.current,
             "skipped": self.skipped,
             "remaining": max(0, self.total - (self.current + self.skipped)),
-            "percent": round(((self.current + self.skipped) / self.total * 100), 1) if self.total > 0 else 0,
+            "percent": round(((self.current + self.skipped) / self.total * 100), 1) if self.total > 0 and self.total > (self.current + self.skipped) else (100 if self.is_complete else 0),
             "status": self.status,
             "last_file": self.last_file[:40],
             "categories": self.categories,
             "meta": self.meta,
             "is_complete": self.is_complete,
             "cancelled": self.cancelled,
+            "result_url": self.result_url,
+            "temp_files": self.temp_files,
             "elapsed": round(time.time() - self.start_time, 1)
         }
 
@@ -163,7 +177,6 @@ def handle_run():
             # Action 1: Recursive Copy
             if action == "copy":
                 sid = extract_id(data['src'])
-                # DEFAULT TO ROOT IF EMPTY
                 did = extract_id(data['dst']) or 'root'
                 
                 tr = ProgressTracker(task_id, 0, "Copying", {"src": sid[:8], "dst": "Root" if did=='root' else did[:8]})
@@ -174,7 +187,6 @@ def handle_run():
                 def clone(s_id, p_id):
                     tr.check_cancel()
                     m = service.files().get(fileId=s_id, fields="name").execute()
-                    # Determine parents list. If root, we can omit parents or pass root.
                     p_list = [p_id] if p_id and p_id != 'root' else []
                     
                     nid = service.files().create(body={"name":m["name"], "mimeType":"application/vnd.google-apps.folder", "parents":p_list}, fields="id").execute()["id"]
@@ -221,6 +233,7 @@ def handle_run():
                 tr.update("Cloning First Source")
                 m = service.files().get(fileId=src, fields="name").execute()
                 nid = service.files().create(body={"name": m["name"], "mimeType": "application/vnd.google-apps.folder", "parents": [UNPOSTED_FOLDER_ID]}, fields="id").execute()["id"]
+                
                 tr.update("Merging Second Source")
                 for it in service.files().list(q=f"'{SECOND_SOURCE_FOLDER_ID}' in parents and trashed=false").execute().get('files', []):
                     service.files().copy(fileId=it['id'], body={"name": it['name'], "parents": [nid]}).execute()
@@ -276,10 +289,52 @@ def handle_run():
                     else: tr.update(f"Folder-{fid['id'][:5]}", "Folders", is_skipped=True)
                 tr.complete()
 
+            # Action 8: Trim Video
+            elif action == "trim":
+                file_id = extract_id(data['url'])
+                tr = ProgressTracker(task_id, 3, "Trim Video", {"id": file_id[:8]})
+                
+                # 1. Setup paths
+                temp_in = os.path.join(TEMP_DIR, f"in_{task_id}.mp4")
+                temp_out = os.path.join(TEMP_DIR, f"trim_{task_id}.mp4")
+                tr.temp_files = [temp_in, temp_out]
+                
+                # 2. Download
+                tr.status = "Downloading from Drive..."
+                tr.save()
+                request = service.files().get_media(fileId=file_id)
+                with io.FileIO(temp_in, 'wb') as fh:
+                    downloader = MediaIoBaseDownload(fh, request)
+                    done = False
+                    while not done:
+                        tr.check_cancel()
+                        status, done = downloader.next_chunk()
+                tr.current = 1
+                tr.save()
+
+                # 3. Trim
+                tr.status = "Trimming (ffmpeg)..."
+                tr.save()
+                cmd = f"ffmpeg -i {temp_in} -t 3 -c copy {temp_out} -y"
+                process = subprocess.run(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                
+                if process.returncode != 0:
+                    raise Exception("FFmpeg failed. Is it installed?")
+                
+                tr.current = 2
+                tr.save()
+
+                # 4. Finish
+                # We remove the input file now to save space, keep output for download
+                if os.path.exists(temp_in): os.remove(temp_in)
+                
+                tr.current = 3
+                tr.complete(status="Ready to Download", result_url=f"{SERVER_DOMAIN}/api/download/{task_id}")
+
         except Exception as e:
             msg = str(e)
             if "Cancelled" in msg: TASKS[task_id]['status'] = "Cancelled"
-            else: TASKS[task_id]['status'] = "Failed"
+            else: TASKS[task_id]['status'] = f"Failed: {msg}"
             TASKS[task_id]['is_complete'] = True
 
     threading.Thread(target=worker).start()
@@ -288,24 +343,34 @@ def handle_run():
 @app.route('/api/cancel/<tid>', methods=['POST'])
 def cancel_task(tid):
     if tid in TASKS:
-        # We manually access the object in memory if possible, or just set the dict flag
-        # But since we stored dicts in TASKS, we can't access the class instance easily.
-        # Solution: We only need the tracker to read the dict.
-        # WAIT: In worker, we call tr.check_cancel(). That checks self.cancelled.
-        # But we only stored self.to_dict() in TASKS.
-        # FIX: We need to store the INSTANCE or flag mechanism.
-        # Since we restart often, we will rely on a shared global dict 'TASK_FLAGS'
         TASK_FLAGS[tid] = True
         TASKS[tid]['status'] = "Cancelling..."
     return jsonify({"status": "Signal Sent"})
 
-# Global cancellation flags
-TASK_FLAGS = {}
+@app.route('/api/dismiss/<tid>', methods=['POST'])
+def dismiss_task(tid):
+    # Clean up server memory
+    if tid in TASKS:
+        # Cleanup temp files if any
+        for f in TASKS[tid].get('temp_files', []):
+            try:
+                if os.path.exists(f): os.remove(f)
+            except: pass
+        del TASKS[tid]
+    
+    # Clean up flags
+    if tid in TASK_FLAGS: del TASK_FLAGS[tid]
+    return jsonify({"status": "Dismissed"})
 
-# Patch ProgressTracker to check global flags
-def check_cancel_patch(self):
-    if TASK_FLAGS.get(self.task_id): raise Exception("Task Cancelled by User")
-ProgressTracker.check_cancel = check_cancel_patch
+@app.route('/api/download/<tid>', methods=['GET'])
+def download_result(tid):
+    if tid not in TASKS: return "Task not found or expired", 404
+    # Find the output file
+    if 'temp_files' in TASKS[tid] and len(TASKS[tid]['temp_files']) > 1:
+        out_file = TASKS[tid]['temp_files'][1]
+        if os.path.exists(out_file):
+            return send_file(out_file, as_attachment=True, download_name="trimmed_video.mp4")
+    return "File not found", 404
 
 @app.route('/api/status/<tid>')
 def get_status(tid): return jsonify(TASKS.get(tid, {"status": "Waiting"}))
@@ -334,5 +399,3 @@ def s(): return send_from_directory('drive', 'index.html')
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 8000)))
-
-
