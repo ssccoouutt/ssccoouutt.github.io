@@ -3,176 +3,221 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TechZoneX | Drive Pro Suite</title>
+    <title>TechZoneX | Drive Command Center</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap');
-        body { font-family: 'Outfit', sans-serif; background: #020617; color: #cbd5e1; }
-        .glass { background: rgba(15, 23, 42, 0.7); backdrop-filter: blur(16px); border: 1px solid rgba(51, 65, 85, 0.5); }
-        .btn-pro { background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
-        .btn-pro:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 10px 20px -5px rgba(37, 99, 235, 0.5); }
-        .btn-pro:disabled { opacity: 0.5; cursor: not-allowed; }
-        .card-anim { animation: slideIn 0.4s ease-out forwards; }
-        @keyframes slideIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;500;700&display=swap');
+        body { font-family: 'Space Grotesk', sans-serif; background: #030712; color: #e2e8f0; }
+        .glass-panel { background: rgba(17, 24, 39, 0.7); backdrop-filter: blur(20px); border: 1px solid rgba(55, 65, 81, 0.5); box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1); transition: all 0.3s ease; }
+        .glass-panel:hover { border-color: rgba(59, 130, 246, 0.5); transform: translateY(-2px); }
+        .btn-glow { background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); transition: all 0.3s; }
+        .btn-glow:hover { box-shadow: 0 0 20px rgba(37, 99, 235, 0.5); transform: scale(1.02); }
+        .input-dark { background: #0f172a !important; border: 1px solid #1e293b !important; color: white !important; transition: border-color 0.3s; }
+        .input-dark:focus { border-color: #3b82f6 !important; outline: none; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
     </style>
 </head>
-<body class="min-h-screen">
+<body class="min-h-screen p-4 md:p-8">
 
-    <!-- Nav -->
-    <nav class="sticky top-0 z-50 border-b border-slate-800 bg-[#020617]/80 backdrop-blur-md">
-        <div class="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
-            <div class="flex items-center gap-3">
-                <div class="p-2.5 bg-blue-600 rounded-xl shadow-lg shadow-blue-500/20">
-                    <i class="fab fa-google-drive text-white text-xl"></i>
-                </div>
-                <h1 class="text-xl font-bold text-white tracking-tight">TechZoneX <span class="text-blue-500">Pro</span></h1>
-            </div>
-            <div id="auth-status">
-                <button onclick="login()" class="btn-pro px-6 py-2.5 rounded-full text-sm font-bold text-white">Connect Account</button>
-            </div>
-        </div>
-    </nav>
-
-    <main class="max-w-7xl mx-auto p-6 space-y-8">
+    <div class="max-w-7xl mx-auto space-y-8">
         
-        <!-- Smart Progress Monitor -->
-        <div id="task-monitor" class="hidden space-y-4">
-            <h2 class="text-xs font-bold text-slate-500 uppercase tracking-widest">Active System Tasks</h2>
-            <div id="task-grid" class="grid grid-cols-1 lg:grid-cols-2 gap-4"></div>
+        <!-- Header -->
+        <header class="flex flex-col md:flex-row justify-between items-center bg-slate-900/80 p-6 rounded-[2rem] border border-slate-800">
+            <div class="flex items-center gap-4 mb-4 md:mb-0">
+                <div class="w-12 h-12 bg-blue-600 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/20">
+                    <i class="fab fa-google-drive text-white text-2xl"></i>
+                </div>
+                <div>
+                    <h1 class="text-2xl font-bold text-white tracking-tight">TECHZONEX</h1>
+                    <div class="flex items-center gap-2">
+                        <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                        <span class="text-xs font-medium text-slate-400 uppercase tracking-widest">System Online</span>
+                    </div>
+                </div>
+            </div>
+            <div id="auth-container">
+                <button onclick="login()" class="px-8 py-3 btn-glow text-white rounded-xl font-bold text-sm">Initialize Connection</button>
+            </div>
+        </header>
+
+        <!-- Live Monitor -->
+        <div id="monitor-panel" class="hidden space-y-4">
+            <div class="flex items-center gap-2">
+                <i class="fas fa-microchip text-blue-500 animate-spin-slow"></i>
+                <h2 class="text-xs font-bold text-slate-500 uppercase tracking-widest">Active Processes</h2>
+            </div>
+            <div id="task-list" class="grid grid-cols-1 lg:grid-cols-2 gap-4"></div>
         </div>
 
-        <!-- Tool Grid -->
+        <!-- Tools Grid -->
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             
-            <!-- Recursive Copy -->
-            <div class="glass p-6 rounded-3xl space-y-5">
-                <div class="flex items-center gap-3">
-                    <i class="fas fa-layer-group text-blue-500 text-lg"></i>
-                    <h3 class="text-white font-bold">Recursive Cloner</h3>
+            <!-- 1. Copy -->
+            <div class="glass-panel p-6 rounded-3xl space-y-4">
+                <div class="flex justify-between items-start">
+                    <div class="p-3 bg-blue-500/10 rounded-xl"><i class="fas fa-copy text-blue-500"></i></div>
+                    <span class="text-[10px] font-bold text-slate-600 bg-slate-900 px-2 py-1 rounded">OPT-01</span>
                 </div>
-                <input type="text" id="cp-src" placeholder="Source Folder URL" class="w-full bg-slate-900/50 border border-slate-700 rounded-xl p-3.5 text-sm outline-none focus:border-blue-500 transition-colors">
-                <input type="text" id="cp-dst" placeholder="Destination URL" class="w-full bg-slate-900/50 border border-slate-700 rounded-xl p-3.5 text-sm outline-none focus:border-blue-500 transition-colors">
-                <button onclick="execute('copy', {src:'cp-src', dst:'cp-dst'})" class="w-full btn-pro py-3.5 rounded-2xl font-bold text-white shadow-lg">Start Deep Clone</button>
+                <h3 class="text-lg font-bold text-white">Recursive Clone</h3>
+                <input type="text" id="cp-src" placeholder="Source Folder ID/URL" class="w-full p-3 rounded-xl text-sm input-dark">
+                <input type="text" id="cp-dst" placeholder="Destination Folder ID/URL" class="w-full p-3 rounded-xl text-sm input-dark">
+                <button onclick="run('copy', {src:'cp-src', dst:'cp-dst'})" class="w-full py-3 btn-glow rounded-xl font-bold text-sm text-white">Start Cloning</button>
             </div>
 
-            <!-- Smart Replace -->
-            <div class="glass p-6 rounded-3xl space-y-5">
-                <div class="flex items-center gap-3">
-                    <i class="fas fa-bolt-lightning text-amber-500 text-lg"></i>
-                    <h3 class="text-white font-bold">Smart Swap</h3>
+            <!-- 2. Rename -->
+            <div class="glass-panel p-6 rounded-3xl space-y-4">
+                <div class="flex justify-between items-start">
+                    <div class="p-3 bg-purple-500/10 rounded-xl"><i class="fas fa-i-cursor text-purple-500"></i></div>
+                    <span class="text-[10px] font-bold text-slate-600 bg-slate-900 px-2 py-1 rounded">OPT-02</span>
                 </div>
-                <input type="text" id="sr-target" placeholder="Target Folder URL" class="w-full bg-slate-900/50 border border-slate-700 rounded-xl p-3.5 text-sm outline-none">
-                <input type="text" id="sr-sample" placeholder="Sample File URL" class="w-full bg-slate-900/50 border border-slate-700 rounded-xl p-3.5 text-sm outline-none">
-                <input type="text" id="sr-replace" placeholder="Replacement URL" class="w-full bg-slate-900/50 border border-slate-700 rounded-xl p-3.5 text-sm outline-none">
-                <button onclick="execute('smart_replace', {target:'sr-target', sample:'sr-sample', replace:'sr-replace'})" class="w-full btn-pro from-amber-600 to-amber-700 py-3.5 rounded-2xl font-bold text-white shadow-lg" style="background: linear-gradient(135deg, #d97706 0%, #b45309 100%)">Execute Smart Swap</button>
+                <h3 class="text-lg font-bold text-white">Bulk Renamer</h3>
+                <input type="text" id="rn-url" placeholder="Folder URL" class="w-full p-3 rounded-xl text-sm input-dark">
+                <div class="grid grid-cols-2 gap-2">
+                    <input type="text" id="rn-s" placeholder="Find" class="p-3 rounded-xl text-sm input-dark">
+                    <input type="text" id="rn-r" placeholder="Replace" class="p-3 rounded-xl text-sm input-dark">
+                </div>
+                <button onclick="run('rename', {url:'rn-url', search:'rn-s', replace:'rn-r'})" class="w-full py-3 bg-purple-600 hover:bg-purple-700 transition rounded-xl font-bold text-sm text-white">Execute Rename</button>
             </div>
 
-            <!-- Analysis Tools -->
-            <div class="glass p-6 rounded-3xl space-y-5">
-                <div class="flex items-center gap-3">
-                    <i class="fas fa-magnifying-glass-chart text-emerald-500 text-lg"></i>
-                    <h3 class="text-white font-bold">Quick Analysis</h3>
+            <!-- 3 & 5. Analysis -->
+            <div class="glass-panel p-6 rounded-3xl space-y-4">
+                <div class="flex justify-between items-start">
+                    <div class="p-3 bg-pink-500/10 rounded-xl"><i class="fas fa-chart-pie text-pink-500"></i></div>
+                    <span class="text-[10px] font-bold text-slate-600 bg-slate-900 px-2 py-1 rounded">OPT-03/05</span>
                 </div>
-                <input type="text" id="qa-url" placeholder="Folder/File URL" class="w-full bg-slate-900/50 border border-slate-700 rounded-xl p-3.5 text-sm outline-none focus:border-emerald-500 transition-colors">
+                <h3 class="text-lg font-bold text-white">Quick Diagnostics</h3>
+                <input type="text" id="qa-url" placeholder="File or Folder URL" class="w-full p-3 rounded-xl text-sm input-dark">
                 <div class="grid grid-cols-2 gap-3">
-                    <button onclick="execute('count', {url:'qa-url'})" class="btn-pro py-3.5 rounded-2xl font-bold text-xs" style="background: #10b981">Count Files</button>
-                    <button onclick="execute('info', {url:'qa-url'})" class="btn-pro py-3.5 rounded-2xl font-bold text-xs" style="background: #059669">Get Info</button>
+                    <button onclick="run('count', {url:'qa-url'})" class="py-3 bg-slate-800 hover:bg-slate-700 rounded-xl font-bold text-xs uppercase transition text-slate-300">Count Files</button>
+                    <button onclick="run('info', {url:'qa-url'})" class="py-3 bg-slate-800 hover:bg-slate-700 rounded-xl font-bold text-xs uppercase transition text-slate-300">Get Metadata</button>
                 </div>
+            </div>
+
+            <!-- 4. Automation -->
+            <div class="glass-panel p-6 rounded-3xl space-y-4 border-dashed border-slate-700">
+                <div class="flex justify-between items-start">
+                    <div class="p-3 bg-yellow-500/10 rounded-xl"><i class="fas fa-bolt text-yellow-500"></i></div>
+                    <span class="text-[10px] font-bold text-slate-600 bg-slate-900 px-2 py-1 rounded">OPT-04</span>
+                </div>
+                <h3 class="text-lg font-bold text-white">Auto Workflow</h3>
+                <p class="text-xs text-slate-500">Clones Source 1 -> Merges Source 2 -> Brands .mp4 files</p>
+                <input type="text" id="at-url" placeholder="Primary Source URL" class="w-full p-3 rounded-xl text-sm input-dark">
+                <button onclick="run('automated', {url:'at-url'})" class="w-full py-3 bg-yellow-600 hover:bg-yellow-700 transition rounded-xl font-bold text-sm text-white">Run Sequence</button>
+            </div>
+
+            <!-- 6. Smart Replace -->
+            <div class="glass-panel p-6 rounded-3xl space-y-4">
+                <div class="flex justify-between items-start">
+                    <div class="p-3 bg-orange-500/10 rounded-xl"><i class="fas fa-sync-alt text-orange-500"></i></div>
+                    <span class="text-[10px] font-bold text-slate-600 bg-slate-900 px-2 py-1 rounded">OPT-06</span>
+                </div>
+                <h3 class="text-lg font-bold text-white">Smart Swap</h3>
+                <input type="text" id="sr-target" placeholder="Target Folder" class="w-full p-3 rounded-xl text-sm input-dark">
+                <input type="text" id="sr-sample" placeholder="Sample File" class="w-full p-3 rounded-xl text-sm input-dark">
+                <input type="text" id="sr-replace" placeholder="Replacement File" class="w-full p-3 rounded-xl text-sm input-dark">
+                <button onclick="run('smart_replace', {target:'sr-target', sample:'sr-sample', replace:'sr-replace'})" class="w-full py-3 bg-orange-600 hover:bg-orange-700 transition rounded-xl font-bold text-sm text-white">Swap Matches</button>
+            </div>
+
+            <!-- 7. Distribution -->
+            <div class="glass-panel p-6 rounded-3xl space-y-4">
+                <div class="flex justify-between items-start">
+                    <div class="p-3 bg-emerald-500/10 rounded-xl"><i class="fas fa-network-wired text-emerald-500"></i></div>
+                    <span class="text-[10px] font-bold text-slate-600 bg-slate-900 px-2 py-1 rounded">OPT-07</span>
+                </div>
+                <h3 class="text-lg font-bold text-white">Smart Distribute</h3>
+                <input type="text" id="sd-target" placeholder="Root Target URL" class="w-full p-3 rounded-xl text-sm input-dark">
+                <input type="text" id="sd-src" placeholder="File to Distribute" class="w-full p-3 rounded-xl text-sm input-dark">
+                <button onclick="run('distribute', {target:'sd-target', source:'sd-src'})" class="w-full py-3 bg-emerald-600 hover:bg-emerald-700 transition rounded-xl font-bold text-sm text-white">Start Sync</button>
             </div>
 
         </div>
-    </main>
+    </div>
 
     <script>
         const API = "https://simple-liana-techzone3201-048a28fa.koyeb.app";
 
         function login() { window.location.href = API + "/auth/login"; }
 
-        function checkAuth() {
-            const hash = window.location.hash;
-            if (hash.includes('auth_data=')) {
-                localStorage.setItem('drive_creds', decodeURIComponent(hash.split('auth_data=')[1]));
+        function initAuth() {
+            const h = window.location.hash;
+            if (h.includes('auth_data=')) {
+                localStorage.setItem('drive_creds', decodeURIComponent(h.split('auth_data=')[1]));
                 window.history.replaceState(null, null, window.location.pathname);
             }
             if (localStorage.getItem('drive_creds')) {
-                document.getElementById('auth-status').innerHTML = `
-                    <div class="bg-slate-900/80 border border-slate-700 px-5 py-2 rounded-full flex items-center gap-3">
+                document.getElementById('auth-container').innerHTML = `
+                    <div class="flex items-center gap-3 bg-slate-900 border border-slate-700 px-5 py-2.5 rounded-xl">
                         <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                        <span class="text-xs font-bold text-white uppercase">Cloud System Online</span>
+                        <span class="text-xs font-bold text-slate-300 uppercase tracking-widest">Authorized</span>
+                        <button onclick="localStorage.removeItem('drive_creds'); location.reload()" class="ml-2 text-slate-500 hover:text-white transition"><i class="fas fa-sign-out-alt"></i></button>
                     </div>`;
             }
         }
 
-        async function execute(action, inputs) {
+        async function run(action, fields) {
             const creds = localStorage.getItem('drive_creds');
-            if (!creds) return alert("System Not Authorized!");
+            if (!creds) return alert("Please connect your account first.");
             
             const body = { action, creds };
-            for (let k in inputs) body[k] = document.getElementById(inputs[k]).value;
+            for(let k in fields) body[k] = document.getElementById(fields[k]).value;
 
             try {
                 const res = await fetch(API + '/api/run', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(body)
+                    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
                 });
                 const data = await res.json();
-                trackTask(data.task_id);
-            } catch (e) { alert("Backend Connection Lost"); }
+                track(data.task_id);
+            } catch(e) { alert("Error connecting to cloud engine."); }
         }
 
-        function trackTask(id) {
-            document.getElementById('task-monitor').classList.remove('hidden');
-            const grid = document.getElementById('task-grid');
+        function track(id) {
+            document.getElementById('monitor-panel').classList.remove('hidden');
+            const grid = document.getElementById('task-list');
             const card = document.createElement('div');
-            card.className = "glass p-5 rounded-2xl card-anim border-blue-500/20";
+            card.className = "bg-slate-900/50 border border-blue-500/20 p-5 rounded-2xl relative overflow-hidden transition-all duration-500";
             grid.appendChild(card);
 
-            const interval = setInterval(async () => {
-                const res = await fetch(`${API}/api/status/${id}`);
-                const s = await res.json();
+            const timer = setInterval(async () => {
+                const r = await fetch(`${API}/api/status/${id}`);
+                const s = await r.json();
 
-                let report = "";
+                // Dynamic Report Generator
+                let extra = "";
                 if(s.is_complete) {
-                    report = `<div class="mt-4 pt-4 border-t border-slate-800 grid grid-cols-2 gap-2">`;
-                    for(let cat in s.categories) {
-                        report += `<div class="text-[10px] bg-slate-800/50 p-2 rounded-lg flex justify-between">
-                            <span class="text-slate-400">${cat}</span>
-                            <span class="text-white font-bold">${s.categories[cat]}</span>
-                        </div>`;
-                    }
-                    report += `</div>`;
-                    clearInterval(interval);
+                    extra = `<div class="grid grid-cols-3 gap-2 mt-4 pt-4 border-t border-slate-800">`;
+                    for(let c in s.categories) extra += `<div class="bg-slate-950 p-2 rounded text-center"><div class="text-[9px] text-slate-500 uppercase">${c}</div><div class="text-xs font-bold text-white">${s.categories[c]}</div></div>`;
+                    if(s.meta && s.meta.size) extra += `<div class="col-span-3 text-center text-[10px] text-slate-400 mt-2">File Size: ${s.meta.size} bytes</div>`;
+                    extra += `</div>`;
+                    clearInterval(timer);
                 }
 
                 card.innerHTML = `
-                    <div class="flex justify-between items-center mb-4">
-                        <div class="flex items-center gap-2">
-                            <div class="w-2 h-2 rounded-full ${s.is_complete ? 'bg-green-500' : 'bg-blue-500 animate-pulse'}"></div>
-                            <span class="text-[10px] font-bold text-white uppercase">${s.action}</span>
-                        </div>
-                        <span class="text-[10px] font-mono text-slate-500">#${id}</span>
+                    <div class="flex justify-between mb-3">
+                        <span class="text-[9px] font-black text-slate-500 uppercase tracking-[0.2em]">${s.action}</span>
+                        <span class="text-[9px] font-mono text-blue-400">#${id}</span>
                     </div>
                     <div class="text-xs font-bold text-white mb-2 truncate">${s.last_file || 'Preparing...'}</div>
-                    <div class="w-full bg-slate-900 h-2 rounded-full overflow-hidden">
-                        <div class="bg-blue-600 h-full transition-all duration-700" style="width: ${s.percent}%"></div>
+                    <div class="w-full bg-slate-950 h-1.5 rounded-full overflow-hidden">
+                        <div class="bg-blue-600 h-full transition-all duration-700 ease-out" style="width:${s.percent}%"></div>
                     </div>
                     <div class="flex justify-between mt-3 text-[10px] font-bold">
                         <div class="text-slate-400">
-                            PROCESSED: <span class="text-white">${s.current}</span> / 
-                            REMAINING: <span class="text-blue-400">${s.remaining}</span>
+                            DONE: <span class="text-white">${s.current}</span>
+                            ${s.skipped > 0 ? `<span class="text-slate-600 mx-1">|</span> SKIP: <span class="text-orange-400">${s.skipped}</span>` : ''}
+                            ${s.remaining > 0 ? `<span class="text-slate-600 mx-1">|</span> LEFT: <span class="text-blue-500">${s.remaining}</span>` : ''}
                         </div>
                         <div class="text-blue-500">${s.percent}%</div>
                     </div>
-                    ${report}
-                    ${s.is_complete ? `<button onclick="this.parentElement.remove()" class="mt-4 w-full py-2 bg-slate-800 hover:bg-slate-700 rounded-xl text-[10px] font-bold uppercase transition-colors">Dismiss Report</button>` : ''}
+                    ${extra}
                 `;
             }, 1500);
         }
 
-        window.onload = checkAuth;
+        window.onload = initAuth;
     </script>
 </body>
 </html>
+
 
