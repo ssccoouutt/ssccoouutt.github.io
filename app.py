@@ -18,10 +18,12 @@ from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
 from googleapiclient.errors import HttpError
 
 # --- CONFIGURATION ---
+# UPDATE THESE TO MATCH YOUR ACTUAL URLS
 FRONTEND_URL = "https://techzonex.store/drive"
 SERVER_DOMAIN = "https://simple-liana-techzone3201-048a28fa.koyeb.app"
 TEMP_DIR = "/tmp"
 
+# Folder IDs
 UNPOSTED_FOLDER_ID = "14tf687_8F4o2oYJTqyCZmvJjq45jRliy"
 SECOND_SOURCE_FOLDER_ID = "12V7EnRIYcSgEtt0PR5fhV8cO22nzYuiv"
 
@@ -42,8 +44,11 @@ os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 SCOPES = ["https://www.googleapis.com/auth/drive"]
 
 app = Flask(__name__)
-app.secret_key = os.urandom(24)
-CORS(app)
+# Static key prevents session loss on server restart
+app.secret_key = "my_static_secret_key_for_stability" 
+
+# Enable CORS for all domains to prevent blocking
+CORS(app, resources={r"/*": {"origins": "*"}})
 
 # Global State
 TASKS = {}
@@ -191,6 +196,10 @@ def upload_file(service, path, name, parent_id=None):
 
 # --- API ---
 
+@app.route('/')
+def health_check():
+    return "OK", 200
+
 @app.route('/api/get_duration', methods=['POST'])
 def get_video_duration():
     try:
@@ -220,7 +229,7 @@ def handle_run():
         try:
             service = get_service(data['creds'])
             
-            # --- ACTION LOGIC ---
+            # Action 1: Recursive Copy
             if action == "copy":
                 sid = extract_id(data['src'])
                 did = extract_id(data['dst']) or 'root'
@@ -229,7 +238,6 @@ def handle_run():
                 tr.total = len(all_items)
                 tr.save()
                 
-                # ... (Existing Copy Logic) ...
                 def clone(s_id, p_id):
                     tr.check_cancel()
                     m = service.files().get(fileId=s_id, fields="name").execute()
@@ -244,11 +252,6 @@ def handle_run():
                             tr.update(it['name'], it['mimeType'])
                 clone(sid, did)
                 tr.complete()
-
-            # ... (Other actions: rename, count, automated, info, smart_replace, distribute remain same) ...
-            # I am condensing them for brevity, assuming you have the previous code. 
-            # If you copy-paste, ensure previous logic is here. 
-            # I will include them to ensure the file is complete.
 
             elif action == "rename":
                 fid, s, r = extract_id(data['url']), data['search'], data['replace']
@@ -331,7 +334,7 @@ def handle_run():
                     else: tr.update(f"Folder-{fid['id'][:5]}", "Folders", is_skipped=True)
                 tr.complete()
 
-            # --- NEW: TRIM VIDEO ---
+            # --- VIDEO TRIMMER ---
             elif action == "trim":
                 file_id = extract_id(data['url'])
                 start_time = data.get('start', '00:00:00')
@@ -350,7 +353,6 @@ def handle_run():
 
                 tr.status = "Trimming (FFmpeg)..."
                 tr.save()
-                # Use -ss (start) and -to (end)
                 cmd = f"ffmpeg -i {temp_in} -ss {start_time} -to {end_time} -c copy {temp_out} -y"
                 process = subprocess.run(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 if process.returncode != 0: raise Exception("FFmpeg failed")
@@ -370,7 +372,7 @@ def handle_run():
                 tr.current = 4
                 tr.complete(status="Uploaded & Ready", result_url=f"{SERVER_DOMAIN}/api/download/{task_id}")
 
-            # --- NEW: MERGE VIDEOS ---
+            # --- VIDEO MERGER ---
             elif action == "merge":
                 id1 = extract_id(data['src1'])
                 id2 = extract_id(data['src2'])
@@ -408,7 +410,6 @@ def handle_run():
                 upload_file(service, f_out, "Merged_Video.mp4")
                 tr.current = 4
                 
-                # Cleanup inputs
                 if os.path.exists(f1): os.remove(f1)
                 if os.path.exists(f2): os.remove(f2)
                 
@@ -448,7 +449,6 @@ def dismiss_task(tid):
 @app.route('/api/download/<tid>', methods=['GET'])
 def download_result(tid):
     if tid not in TASKS: return "Task not found", 404
-    # Find output file (usually the one remaining in temp_files)
     for f in TASKS[tid].get('temp_files', []):
         if os.path.exists(f) and ("trim" in f or "merged" in f):
             return send_file(f, as_attachment=True, download_name="video_output.mp4")
@@ -471,9 +471,6 @@ def callback():
     f.redirect_uri = f"{SERVER_DOMAIN}/callback"
     f.fetch_token(authorization_response=request.url)
     return redirect(f"{FRONTEND_URL}#auth_data={urllib.parse.quote(f.credentials.to_json())}")
-
-@app.route('/')
-def h(): return "OK", 200
 
 @app.route('/drive')
 @app.route('/drive/index.html')
