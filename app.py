@@ -10,23 +10,27 @@ from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
-# --- HARDCODED CONFIGURATION ---
+# --- CONFIGURATION ---
+# Professional Domain
+FRONTEND_URL = "https://techzonex.store/drive"
+
 RAW_CREDENTIALS = {
     "web": {
         "client_id": "704057951722-i19ln87gtlofufuet9okb9mvdj9t9hel.apps.googleusercontent.com",
         "project_id": "teledrive-pro",
         "auth_uri": "https://accounts.google.com/o/oauth2/auth",
         "token_uri": "https://oauth2.googleapis.com/token",
-        "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+        "auth_provider_x509_cert_url": "https://www.googleapis.com/view/certs",
         "client_secret": "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",
         "redirect_uris": ["https://simple-liana-techzone3201-048a28fa.koyeb.app/callback"],
-        "javascript_origins": ["https://simple-liana-techzone3201-048a28fa.koyeb.app"]
+        "javascript_origins": ["https://simple-liana-techzone3201-048a28fa.koyeb.app", "https://techzonex.store"]
     }
 }
 
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1' 
 SCOPES = ["https://www.googleapis.com/auth/drive"]
-KOYEB_DOMAIN = "https://simple-liana-techzone3201-048a28fa.koyeb.app"
+# This is the server address used for the callback handshake
+SERVER_DOMAIN = "https://simple-liana-techzone3201-048a28fa.koyeb.app"
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
@@ -34,12 +38,7 @@ CORS(app)
 
 @app.route('/')
 def health_check():
-    return "TechZoneX Drive Engine is Healthy", 200
-
-@app.route('/drive')
-@app.route('/drive/index.html')
-def serve_drive():
-    return send_from_directory('drive', 'index.html')
+    return "TechZoneX Drive Engine Active", 200
 
 # --- AUTH ROUTES ---
 
@@ -47,14 +46,8 @@ def serve_drive():
 def login():
     try:
         flow = Flow.from_client_config(RAW_CREDENTIALS, scopes=SCOPES)
-        # MUST match the URI in Google Console exactly
-        flow.redirect_uri = f"{KOYEB_DOMAIN}/callback"
-        
-        authorization_url, state = flow.authorization_url(
-            access_type='offline',
-            include_granted_scopes='true',
-            prompt='consent'
-        )
+        flow.redirect_uri = f"{SERVER_DOMAIN}/callback"
+        authorization_url, state = flow.authorization_url(access_type='offline', include_granted_scopes='true', prompt='consent')
         session['state'] = state
         return redirect(authorization_url)
     except Exception as e:
@@ -65,16 +58,29 @@ def callback():
     try:
         state = session.get('state')
         flow = Flow.from_client_config(RAW_CREDENTIALS, scopes=SCOPES, state=state)
-        flow.redirect_uri = f"{KOYEB_DOMAIN}/callback"
-        
+        flow.redirect_uri = f"{SERVER_DOMAIN}/callback"
         flow.fetch_token(authorization_response=request.url)
         creds = flow.credentials
         
+        # This HTML executes on the Koyeb URL for 1 second, saves the data, 
+        # then JUMPS the user back to techzonex.store
         return f"""
-        <html><body><script>
-            window.localStorage.setItem('drive_creds', '{creds.to_json()}');
-            window.location.href = '/drive';
-        </script></body></html>
+        <html>
+        <body style="background:#0f172a; color:white; font-family:sans-serif; display:flex; align-items:center; justify-content:center; height:100vh;">
+            <div style="text-align:center;">
+                <h2>Finalizing Connection...</h2>
+                <p>Redirecting you back to techzonex.store</p>
+            </div>
+            <script>
+                // Save the credentials
+                window.localStorage.setItem('drive_creds', '{creds.to_json()}');
+                // Jump back to the professional domain
+                setTimeout(() => {{
+                    window.location.href = '{FRONTEND_URL}';
+                }}, 500);
+            </script>
+        </body>
+        </html>
         """
     except Exception as e:
         return f"Callback Error: {str(e)}", 500
@@ -109,14 +115,12 @@ def get_info():
 def smart_replace():
     data = request.json
     creds, target_url, sample_url, replace_url = data['creds'], data['target_url'], data['sample_url'], data['replace_url']
-    
     def task():
         try:
             service = get_drive_service(creds)
             sample_meta = service.files().get(fileId=extract_id(sample_url), fields='size,mimeType').execute()
             s_size, s_mime = sample_meta.get('size'), sample_meta.get('mimeType')
             replace_id = extract_id(replace_url)
-
             def recurse(folder_id):
                 query = f"'{folder_id}' in parents and trashed = false"
                 items = service.files().list(q=query, fields="files(id, name, size, mimeType, parents)").execute().get('files', [])
@@ -131,7 +135,6 @@ def smart_replace():
                         except: pass
             recurse(extract_id(target_url))
         except: pass
-
     threading.Thread(target=task).start()
     return jsonify({"status": "Task running in background"})
 
@@ -139,26 +142,22 @@ def smart_replace():
 def smart_distribute():
     data = request.json
     creds, root_url, source_url = data['creds'], data['target_url'], data['source_url']
-
     def task():
         try:
             service = get_drive_service(creds)
             src_id = extract_id(source_url)
             src_meta = service.files().get(fileId=src_id, fields='name,size,mimeType').execute()
-            
             def distribute(folder_id):
                 q = f"'{folder_id}' in parents and trashed = false and size = '{src_meta['size']}' and mimeType = '{src_meta['mimeType']}'"
                 if not service.files().list(q=q).execute().get('files', []):
                     try:
                         service.files().copy(fileId=src_id, body={"name": src_meta['name'], "parents": [folder_id]}).execute()
                     except: pass
-                
                 sq = f"'{folder_id}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
                 subs = service.files().list(q=sq).execute().get('files', [])
                 for s in subs: distribute(s['id'])
             distribute(extract_id(root_url))
         except: pass
-
     threading.Thread(target=task).start()
     return jsonify({"status": "Task running in background"})
 
@@ -166,7 +165,6 @@ def smart_distribute():
 def copy_folder():
     data = request.json
     creds, src_url, dst_url = data['creds'], data['source_url'], data['dest_url']
-
     def task():
         try:
             service = get_drive_service(creds)
@@ -178,12 +176,10 @@ def copy_folder():
                     if item["mimeType"] == "application/vnd.google-apps.folder":
                         deep_copy(item["id"], new_id)
                     else:
-                        try:
-                            service.files().copy(fileId=item["id"], body={"name": item["name"], "parents": [new_id]}).execute()
+                        try: service.files().copy(fileId=item["id"], body={"name": item["name"], "parents": [new_id]}).execute()
                         except: pass
             deep_copy(extract_id(src_url), extract_id(dst_url))
         except: pass
-
     threading.Thread(target=task).start()
     return jsonify({"status": "Task running in background"})
 
