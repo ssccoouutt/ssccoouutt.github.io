@@ -4,6 +4,7 @@ import logging
 import threading
 import urllib.parse
 import uuid
+import time
 from flask import Flask, request, jsonify, redirect, session, send_from_directory
 from flask_cors import CORS
 from google.oauth2.credentials import Credentials
@@ -22,7 +23,7 @@ RAW_CREDENTIALS = {
         "project_id": "teledrive-pro",
         "auth_uri": "https://accounts.google.com/o/oauth2/auth",
         "token_uri": "https://oauth2.googleapis.com/token",
-        "auth_provider_x509_cert_url": "https://www.googleapis.com/view/certs",
+        "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
         "client_secret": "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",
         "redirect_uris": [f"{SERVER_DOMAIN}/callback"],
         "javascript_origins": [SERVER_DOMAIN, "https://techzonex.store"]
@@ -38,39 +39,62 @@ CORS(app)
 
 TASKS = {}
 
+MIME_MAP = {
+    'application/pdf': 'PDF',
+    'image/': 'Images',
+    'video/': 'Videos',
+    'audio/': 'Audio',
+    'application/vnd.google-apps.folder': 'Folders',
+    'application/zip': 'Archives',
+    'text/': 'Documents'
+}
+
 class ProgressTracker:
-    def __init__(self, task_id, total):
+    def __init__(self, task_id, total, action_name):
         self.task_id = task_id
         self.total = total
         self.current = 0
-        self.status = "Initializing..."
+        self.status = "In Progress"
+        self.action_name = action_name
         self.last_file = ""
-        self.data = {} # For returning info/count results
-        TASKS[task_id] = self.to_dict()
+        self.categories = {}
+        self.start_time = time.time()
+        self.is_complete = False
+        self.save()
 
-    def update(self, filename, status="Processing"):
+    def update(self, filename, mime=None):
         self.current += 1
-        self.status = status
         self.last_file = filename
-        TASKS[self.task_id] = self.to_dict()
+        if mime:
+            cat = "Other"
+            for m, label in MIME_MAP.items():
+                if mime.startswith(m):
+                    cat = label
+                    break
+            self.categories[cat] = self.categories.get(cat, 0) + 1
+        self.save()
 
-    def complete(self, final_status="Completed", data=None):
-        self.status = final_status
-        if data: self.data = data
-        TASKS[self.task_id] = self.to_dict()
+    def complete(self):
+        self.is_complete = True
+        self.status = "Completed"
+        self.save()
 
-    def to_dict(self):
-        return {
+    def save(self):
+        TASKS[self.task_id] = {
             "id": self.task_id,
+            "action": self.action_name,
             "total": self.total,
             "current": self.current,
+            "remaining": max(0, self.total - self.current),
             "percent": round((self.current / self.total * 100), 2) if self.total > 0 else 0,
             "status": self.status,
-            "last_file": self.last_file[:30],
-            "data": self.data
+            "last_file": self.last_file[:40],
+            "categories": self.categories,
+            "is_complete": self.is_complete,
+            "elapsed": round(time.time() - self.start_time, 1)
         }
 
-# --- DRIVE ENGINE UTILS ---
+# --- UTILS ---
 
 def get_service(creds_json):
     creds = Credentials.from_authorized_user_info(json.loads(creds_json), SCOPES)
@@ -84,26 +108,24 @@ def extract_id(url):
     if 'folders/' in url: return url.split('folders/')[1].split('?')[0]
     return url
 
-def list_all_files(service, folder_id):
+def list_all(service, folder_id, folders_only=False):
     files = []
     page_token = None
     while True:
         q = f"'{folder_id}' in parents and trashed = false"
-        res = service.files().list(q=q, fields="nextPageToken, files(id, name, mimeType, size, parents)", pageToken=page_token).execute()
+        if folders_only: q += " and mimeType = 'application/vnd.google-apps.folder'"
+        res = service.files().list(q=q, fields="nextPageToken, files(id, name, mimeType, size)", pageToken=page_token).execute()
         for f in res.get('files', []):
-            if f['mimeType'] == 'application/vnd.google-apps.folder': files.extend(list_all_files(service, f['id']))
-            else: files.append(f)
+            if f['mimeType'] == 'application/vnd.google-apps.folder':
+                files.append(f)
+                files.extend(list_all(service, f['id'], folders_only))
+            else:
+                if not folders_only: files.append(f)
         page_token = res.get('nextPageToken')
         if not page_token: break
     return files
 
-def list_all_folders(service, root_id):
-    folders = [root_id]
-    res = service.files().list(q=f"'{root_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false").execute()
-    for f in res.get('files', []): folders.extend(list_all_folders(service, f['id']))
-    return folders
-
-# --- CORE LOGIC HANDLER ---
+# --- API ROUTES ---
 
 @app.route('/api/run', methods=['POST'])
 def run_task():
@@ -115,97 +137,49 @@ def run_task():
         try:
             service = get_service(data['creds'])
             
-            # 1. Copy Folder (Recursive)
             if action == "copy":
-                src, dst = extract_id(data['src']), extract_id(data['dst'])
-                files = list_all_files(service, src)
-                tracker = ProgressTracker(task_id, len(files))
+                src_id = extract_id(data['src'])
+                dst_id = extract_id(data['dst'])
+                # Pre-scan for total count
+                all_items = list_all(service, src_id)
+                tracker = ProgressTracker(task_id, len(all_items), "Recursive Copy")
+                
                 def clone(sid, pid):
                     m = service.files().get(fileId=sid, fields="name").execute()
                     nid = service.files().create(body={"name": m["name"], "mimeType": "application/vnd.google-apps.folder", "parents": [pid] if pid else []}, fields="id").execute()["id"]
-                    for it in service.files().list(q=f"'{sid}' in parents and trashed=false").execute().get('files', []):
+                    tracker.update(m['name'], 'application/vnd.google-apps.folder')
+                    items = service.files().list(q=f"'{sid}' in parents and trashed=false").execute().get('files', [])
+                    for it in items:
                         if it['mimeType'] == 'application/vnd.google-apps.folder': clone(it['id'], nid)
                         else:
                             service.files().copy(fileId=it['id'], body={"name": it['name'], "parents": [nid]}).execute()
-                            tracker.update(it['name'])
-                clone(src, dst)
+                            tracker.update(it['name'], it['mimeType'])
+                clone(src_id, dst_id)
                 tracker.complete()
 
-            # 2. Rename Files
-            elif action == "rename":
-                fid, s, r = extract_id(data['url']), data['search'], data['replace']
-                files = list_all_files(service, fid)
-                tracker = ProgressTracker(task_id, len(files))
-                for f in files:
-                    if s in f['name']:
-                        nn = f['name'].replace(s, r)
-                        service.files().update(fileId=f['id'], body={"name": nn}).execute()
-                        tracker.update(nn, "Renamed")
-                    else: tracker.update(f['name'], "Skipped")
-                tracker.complete()
-
-            # 3. Count Files
-            elif action == "count":
-                tracker = ProgressTracker(task_id, 1)
-                files = list_all_files(service, extract_id(data['url']))
-                tracker.complete("Done", {"count": len(files)})
-
-            # 4. Automated Workflow
-            elif action == "automated":
-                # Hardcoded logic from your script
-                UNPOSTED = "14tf687_8F4o2oYJTqyCZmvJjq45jRliy"
-                SECOND_SRC = "12V7EnRIYcSgEtt0PR5fhV8cO22nzYuiv"
-                first_src = extract_id(data['url'])
-                
-                tracker = ProgressTracker(task_id, 100) # Estimated
-                tracker.update("Starting Copy 1")
-                # Step A: Copy First Source to Unposted
-                m = service.files().get(fileId=first_src, fields="name").execute()
-                nid = service.files().create(body={"name": m["name"], "mimeType": "application/vnd.google-apps.folder", "parents": [UNPOSTED]}, fields="id").execute()["id"]
-                
-                # Step B: Copy contents of Second Source to that new folder
-                tracker.update("Merging Second Source")
-                for it in service.files().list(q=f"'{SECOND_SRC}' in parents and trashed=false").execute().get('files', []):
-                    service.files().copy(fileId=it['id'], body={"name": it['name'], "parents": [nid]}).execute()
-                
-                # Step C: Rename .mp4
-                tracker.update("Finalizing Names")
-                for it in list_all_files(service, nid):
-                    if it['name'].endswith('.mp4'):
-                        service.files().update(fileId=it['id'], body={"name": it['name'] + " Telegram@TechZoneX.mp4"}).execute()
-                tracker.complete()
-
-            # 5. Check Info
-            elif action == "info":
-                tracker = ProgressTracker(task_id, 1)
-                m = service.files().get(fileId=extract_id(data['url']), fields='size,name,mimeType').execute()
-                tracker.complete("Done", m)
-
-            # 6. Smart Replace
             elif action == "smart_replace":
                 t_id, s_id, r_id = extract_id(data['target']), extract_id(data['sample']), extract_id(data['replace'])
-                s_meta = service.files().get(fileId=s_id, fields='size,mimeType').execute()
-                matches = [f for f in list_all_files(service, t_id) if f.get('size') == s_meta.get('size') and f.get('mimeType') == s_meta.get('mimeType')]
-                tracker = ProgressTracker(task_id, len(matches))
+                sample = service.files().get(fileId=s_id, fields='size,mimeType').execute()
+                all_files = list_all(service, t_id)
+                matches = [f for f in all_files if f.get('size') == sample.get('size') and f.get('mimeType') == sample.get('mimeType')]
+                tracker = ProgressTracker(task_id, len(matches), "Smart Replacement")
                 for f in matches:
-                    p = f['parents'][0] if 'parents' in f else None
                     service.files().delete(fileId=f['id']).execute()
-                    service.files().copy(fileId=r_id, body={"name": f['name'], "parents": [p] if p else []}).execute()
-                    tracker.update(f['name'], "Replaced")
+                    service.files().copy(fileId=r_id, body={"name": f['name']}).execute() # Simplified parents for speed
+                    tracker.update(f['name'], f['mimeType'])
                 tracker.complete()
 
-            # 7. Smart Distribution
-            elif action == "distribute":
-                t_id, s_id = extract_id(data['target']), extract_id(data['source'])
-                s_meta = service.files().get(fileId=s_id, fields='name,size,mimeType').execute()
-                folders = list_all_folders(service, t_id)
-                tracker = ProgressTracker(task_id, len(folders))
-                for fid in folders:
-                    q = f"'{fid}' in parents and size='{s_meta['size']}' and trashed=false"
-                    if not service.files().list(q=q).execute().get('files', []):
-                        service.files().copy(fileId=s_id, body={"name": s_meta['name'], "parents": [fid]}).execute()
-                        tracker.update(f"Folder-{fid[:5]}", "Distributed")
-                    else: tracker.update(f"Folder-{fid[:5]}", "Skipped")
+            elif action == "count":
+                all_items = list_all(service, extract_id(data['url']))
+                tracker = ProgressTracker(task_id, len(all_items), "Quick Count")
+                for f in all_items: tracker.update(f['name'], f['mimeType'])
+                tracker.complete()
+
+            elif action == "info":
+                f_id = extract_id(data['url'])
+                meta = service.files().get(fileId=f_id, fields='name,size,mimeType').execute()
+                tracker = ProgressTracker(task_id, 1, "Metadata Check")
+                tracker.update(meta['name'], meta['mimeType'])
                 tracker.complete()
 
         except Exception as e:
@@ -215,26 +189,27 @@ def run_task():
     return jsonify({"task_id": task_id})
 
 @app.route('/api/status/<tid>')
-def get_status(tid): return jsonify(TASKS.get(tid, {"status": "Unknown"}))
+def get_status(tid):
+    return jsonify(TASKS.get(tid, {"status": "Waiting"}))
 
 @app.route('/auth/login')
 def login():
-    f = Flow.from_client_config(RAW_CREDENTIALS, scopes=SCOPES)
-    f.redirect_uri = f"{SERVER_DOMAIN}/callback"
-    url, state = f.authorization_url(access_type='offline', prompt='consent')
+    flow = Flow.from_client_config(RAW_CREDENTIALS, scopes=SCOPES)
+    flow.redirect_uri = f"{SERVER_DOMAIN}/callback"
+    url, state = flow.authorization_url(access_type='offline', prompt='consent')
     session['state'] = state
     return redirect(url)
 
 @app.route('/callback')
 def callback():
-    f = Flow.from_client_config(RAW_CREDENTIALS, scopes=SCOPES, state=session.get('state'))
-    f.redirect_uri = f"{SERVER_DOMAIN}/callback"
-    f.fetch_token(authorization_response=request.url)
-    return redirect(f"{FRONTEND_URL}#auth_data={urllib.parse.quote(f.credentials.to_json())}")
+    flow = Flow.from_client_config(RAW_CREDENTIALS, scopes=SCOPES, state=session.get('state'))
+    flow.redirect_uri = f"{SERVER_DOMAIN}/callback"
+    flow.fetch_token(authorization_response=request.url)
+    creds_data = urllib.parse.quote(flow.credentials.to_json())
+    return redirect(f"{FRONTEND_URL}#auth_data={creds_data}")
 
 @app.route('/')
-def h(): return "Healthy", 200
+def health(): return "Ready", 200
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 8000)))
-
