@@ -3,7 +3,7 @@ import json
 import requests
 import logging
 import threading
-from flask import Flask, request, jsonify, redirect, url_for, session
+from flask import Flask, request, jsonify, redirect, url_for, session, send_from_directory
 from flask_cors import CORS
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
@@ -12,7 +12,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 # Configuration
-os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1' # Koyeb handles SSL at the edge
+os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1' 
 SCOPES = ["https://www.googleapis.com/auth/drive"]
 CLIENT_SECRET_FILE = 'credentials.json'
 CRED_DOWNLOAD_URL = "https://drive.usercontent.google.com/download?id=1kePrDXIzaAxe_NQER1YEYvdEEmwbkFXR&export=download"
@@ -25,7 +25,6 @@ CORS(app)
 # --- STARTUP: DOWNLOAD CREDENTIALS ---
 def download_credentials():
     if not os.path.exists(CLIENT_SECRET_FILE):
-        print("Downloading credentials.json...")
         try:
             response = requests.get(CRED_DOWNLOAD_URL)
             with open(CLIENT_SECRET_FILE, 'wb') as f:
@@ -34,21 +33,21 @@ def download_credentials():
         except Exception as e:
             print(f"Failed to download credentials: {e}")
 
+# Call download immediately
 download_credentials()
 
-# --- HELPER FUNCTIONS ---
+# --- ROUTES FOR KOYEB & FRONTEND ---
 
-def get_drive_service(creds_json):
-    creds = Credentials.from_authorized_user_info(json.loads(creds_json), SCOPES)
-    if creds and creds.expired and creds.refresh_token:
-        creds.refresh(Request())
-    return build("drive", "v3", credentials=creds)
+@app.route('/')
+def health_check():
+    """Fixes the Koyeb Health Check 404 error"""
+    return "Service is running", 200
 
-def extract_id(url):
-    if not url: return None
-    if 'file/d/' in url: return url.split('file/d/')[1].split('/')[0]
-    if 'folders/' in url: return url.split('folders/')[1].split('?')[0]
-    return url
+@app.route('/drive')
+@app.route('/drive/index.html')
+def serve_drive():
+    """Serves your HTML file directly from the drive folder"""
+    return send_from_directory('drive', 'index.html')
 
 # --- AUTH ROUTES ---
 
@@ -66,7 +65,6 @@ def callback():
     flow.redirect_uri = f"{KOYEB_DOMAIN}/callback"
     flow.fetch_token(authorization_response=request.url)
     creds = flow.credentials
-    # Send credentials to frontend to be stored in localStorage
     return f"""
     <html><body><script>
         window.localStorage.setItem('drive_creds', '{creds.to_json()}');
@@ -75,6 +73,18 @@ def callback():
     """
 
 # --- DRIVE API ROUTES ---
+
+def get_drive_service(creds_json):
+    creds = Credentials.from_authorized_user_info(json.loads(creds_json), SCOPES)
+    if creds and creds.expired and creds.refresh_token:
+        creds.refresh(Request())
+    return build("drive", "v3", credentials=creds)
+
+def extract_id(url):
+    if not url: return None
+    if 'file/d/' in url: return url.split('file/d/')[1].split('/')[0]
+    if 'folders/' in url: return url.split('folders/')[1].split('?')[0]
+    return url
 
 @app.route('/api/list_info', methods=['POST'])
 def get_info():
@@ -100,7 +110,6 @@ def smart_replace():
         sample = service.files().get(fileId=sample_id, fields='size,mimeType').execute()
         s_size, s_mime = sample.get('size'), sample.get('mimeType')
         
-        # Recursive Scan
         def scan_and_replace(folder_id):
             query = f"'{folder_id}' in parents and trashed = false"
             results = service.files().list(q=query, fields="files(id, name, size, mimeType, parents)").execute()
@@ -109,8 +118,10 @@ def smart_replace():
                     scan_and_replace(f['id'])
                 elif f.get('size') == s_size and f.get('mimeType') == s_mime:
                     parent_id = f['parents'][0] if 'parents' in f else None
-                    service.files().delete(fileId=f['id']).execute()
-                    service.files().copy(fileId=replace_id, body={"name": f['name'], "parents": [parent_id] if parent_id else []}).execute()
+                    try:
+                        service.files().delete(fileId=f['id']).execute()
+                        service.files().copy(fileId=replace_id, body={"name": f['name'], "parents": [parent_id] if parent_id else []}).execute()
+                    except: pass
 
         scan_and_replace(target_folder_id)
 
@@ -129,13 +140,13 @@ def smart_distribute():
         src_meta = service.files().get(fileId=source_id, fields='name,size,mimeType').execute()
         
         def distribute(folder_id):
-            # Check if folder already has a match
             query = f"'{folder_id}' in parents and trashed = false and size = '{src_meta['size']}'"
             exists = service.files().list(q=query).execute().get('files', [])
             if not exists:
-                service.files().copy(fileId=source_id, body={"name": src_meta['name'], "parents": [folder_id]}).execute()
+                try:
+                    service.files().copy(fileId=source_id, body={"name": src_meta['name'], "parents": [folder_id]}).execute()
+                except: pass
             
-            # Recurse into subfolders
             sub_query = f"'{folder_id}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
             subs = service.files().list(q=sub_query).execute().get('files', [])
             for s in subs: distribute(s['id'])
@@ -174,11 +185,8 @@ def copy_recursive():
     threading.Thread(target=task).start()
     return jsonify({"status": "Recursive copy started"})
 
-@app.route('/health')
-def health():
-    return "OK", 200
-
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
     app.run(host='0.0.0.0', port=port)
+
 
