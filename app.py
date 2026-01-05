@@ -2,6 +2,7 @@ import os
 import json
 import logging
 import threading
+import urllib.parse
 from flask import Flask, request, jsonify, redirect, url_for, session, send_from_directory
 from flask_cors import CORS
 from google.oauth2.credentials import Credentials
@@ -11,7 +12,6 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 # --- CONFIGURATION ---
-# Professional Domain
 FRONTEND_URL = "https://techzonex.store/drive"
 
 RAW_CREDENTIALS = {
@@ -29,7 +29,6 @@ RAW_CREDENTIALS = {
 
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1' 
 SCOPES = ["https://www.googleapis.com/auth/drive"]
-# This is the server address used for the callback handshake
 SERVER_DOMAIN = "https://simple-liana-techzone3201-048a28fa.koyeb.app"
 
 app = Flask(__name__)
@@ -62,26 +61,13 @@ def callback():
         flow.fetch_token(authorization_response=request.url)
         creds = flow.credentials
         
-        # This HTML executes on the Koyeb URL for 1 second, saves the data, 
-        # then JUMPS the user back to techzonex.store
-        return f"""
-        <html>
-        <body style="background:#0f172a; color:white; font-family:sans-serif; display:flex; align-items:center; justify-content:center; height:100vh;">
-            <div style="text-align:center;">
-                <h2>Finalizing Connection...</h2>
-                <p>Redirecting you back to techzonex.store</p>
-            </div>
-            <script>
-                // Save the credentials
-                window.localStorage.setItem('drive_creds', '{creds.to_json()}');
-                // Jump back to the professional domain
-                setTimeout(() => {{
-                    window.location.href = '{FRONTEND_URL}';
-                }}, 500);
-            </script>
-        </body>
-        </html>
-        """
+        # Encode the credentials to pass safely in the URL
+        creds_data = urllib.parse.quote(creds.to_json())
+        
+        # Redirect back to techzonex.store with the key in the "hash" (#)
+        # This keeps the key on the client-side and avoids server logs
+        return redirect(f"{FRONTEND_URL}#auth_data={creds_data}")
+        
     except Exception as e:
         return f"Callback Error: {str(e)}", 500
 
@@ -186,4 +172,3 @@ def copy_folder():
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
     app.run(host='0.0.0.0', port=port)
-
