@@ -17,7 +17,6 @@ from googleapiclient.errors import HttpError
 FRONTEND_URL = "https://techzonex.store/drive"
 SERVER_DOMAIN = "https://simple-liana-techzone3201-048a28fa.koyeb.app"
 
-# Hardcoded Automation IDs
 UNPOSTED_FOLDER_ID = "14tf687_8F4o2oYJTqyCZmvJjq45jRliy"
 SECOND_SOURCE_FOLDER_ID = "12V7EnRIYcSgEtt0PR5fhV8cO22nzYuiv"
 
@@ -66,14 +65,19 @@ class ProgressTracker:
         self.meta = meta or {}
         self.start_time = time.time()
         self.is_complete = False
+        self.cancelled = False
         self.save()
 
-    def update_scan_status(self, count):
-        """Updates status during pre-scan phase without incrementing progress."""
-        self.status = f"Scanning Source... ({count} found)"
+    def check_cancel(self):
+        if self.cancelled: raise Exception("Task Cancelled by User")
+
+    def update_scan(self, count):
+        self.check_cancel()
+        self.status = f"Scanning Source ({count} found)..."
         self.save()
 
     def update(self, filename, mime=None, is_skipped=False):
+        self.check_cancel()
         if is_skipped: self.skipped += 1
         else: self.current += 1
         self.status = "Processing..."
@@ -104,6 +108,7 @@ class ProgressTracker:
             "categories": self.categories,
             "meta": self.meta,
             "is_complete": self.is_complete,
+            "cancelled": self.cancelled,
             "elapsed": round(time.time() - self.start_time, 1)
         }
 
@@ -123,26 +128,21 @@ def extract_id(url):
     return url
 
 def list_recursive(service, folder_id, tracker=None):
-    """Recursively list files, updating tracker status if provided."""
     files = []
     page_token = None
     while True:
         try:
+            if tracker: tracker.check_cancel()
             q = f"'{folder_id}' in parents and trashed = false"
             res = service.files().list(q=q, fields="nextPageToken, files(id, name, mimeType, size, parents)", pageToken=page_token).execute()
             
-            new_items = res.get('files', [])
-            for f in new_items:
+            for f in res.get('files', []):
                 if f['mimeType'] == 'application/vnd.google-apps.folder':
                     files.append(f)
                     files.extend(list_recursive(service, f['id'], tracker))
-                else:
-                    files.append(f)
+                else: files.append(f)
             
-            # UPDATE UI DURING SCAN
-            if tracker and len(files) % 10 == 0:
-                tracker.update_scan_status(len(files))
-
+            if tracker and len(files) % 20 == 0: tracker.update_scan(len(files))
             page_token = res.get('nextPageToken')
             if not page_token: break
         except Exception: break
@@ -160,35 +160,32 @@ def handle_run():
         try:
             service = get_service(data['creds'])
             
-            # Action 1: Recursive Copy (Fixed)
+            # Action 1: Recursive Copy
             if action == "copy":
-                sid, did = extract_id(data['src']), extract_id(data['dst'])
-                # Initialize tracker immediately so UI shows up
-                tr = ProgressTracker(task_id, 0, "Copying", {"src": sid[:8], "dst": did[:8]})
+                sid = extract_id(data['src'])
+                # DEFAULT TO ROOT IF EMPTY
+                did = extract_id(data['dst']) or 'root'
                 
-                # Pass tracker to scanner so it updates UI
+                tr = ProgressTracker(task_id, 0, "Copying", {"src": sid[:8], "dst": "Root" if did=='root' else did[:8]})
                 all_items = list_recursive(service, sid, tr)
                 tr.total = len(all_items)
-                tr.status = "Starting Copy..."
                 tr.save()
 
                 def clone(s_id, p_id):
+                    tr.check_cancel()
                     m = service.files().get(fileId=s_id, fields="name").execute()
-                    try:
-                        nid = service.files().create(body={"name":m["name"], "mimeType":"application/vnd.google-apps.folder", "parents":[p_id] if p_id else []}, fields="id").execute()["id"]
-                    except: nid = p_id # Fallback if root
-
+                    # Determine parents list. If root, we can omit parents or pass root.
+                    p_list = [p_id] if p_id and p_id != 'root' else []
+                    
+                    nid = service.files().create(body={"name":m["name"], "mimeType":"application/vnd.google-apps.folder", "parents":p_list}, fields="id").execute()["id"]
                     tr.update(m['name'], 'application/vnd.google-apps.folder')
                     
-                    # Fetch immediate children only for copying loop
-                    level_items = service.files().list(q=f"'{s_id}' in parents and trashed=false").execute().get('files', [])
-                    for it in level_items:
-                        if it['mimeType'] == 'application/vnd.google-apps.folder': 
-                            clone(it['id'], nid)
+                    items = service.files().list(q=f"'{s_id}' in parents and trashed=false").execute().get('files', [])
+                    for it in items:
+                        if it['mimeType'] == 'application/vnd.google-apps.folder': clone(it['id'], nid)
                         else:
                             service.files().copy(fileId=it['id'], body={"name":it['name'], "parents":[nid]}).execute()
                             tr.update(it['name'], it['mimeType'])
-                
                 clone(sid, did)
                 tr.complete()
 
@@ -199,8 +196,8 @@ def handle_run():
                 all_items = list_recursive(service, fid, tr)
                 tr.total = len(all_items)
                 tr.save()
-                
                 for it in all_items:
+                    tr.check_cancel()
                     if s in it['name']:
                         nn = it['name'].replace(s, r)
                         service.files().update(fileId=it['id'], body={"name": nn}).execute()
@@ -217,26 +214,29 @@ def handle_run():
                 for it in all_items: tr.update(it['name'], it['mimeType'])
                 tr.complete()
 
-            # Action 4: Automated Workflow
+            # Action 4: Automated
             elif action == "automated":
                 src = extract_id(data['url'])
                 tr = ProgressTracker(task_id, 100, "Automated Workflow")
-                tr.update("Step 1: Cloning First Source")
+                tr.update("Cloning First Source")
                 m = service.files().get(fileId=src, fields="name").execute()
                 nid = service.files().create(body={"name": m["name"], "mimeType": "application/vnd.google-apps.folder", "parents": [UNPOSTED_FOLDER_ID]}, fields="id").execute()["id"]
-                tr.update("Step 2: Merging Secondary Assets")
+                tr.update("Merging Second Source")
                 for it in service.files().list(q=f"'{SECOND_SOURCE_FOLDER_ID}' in parents and trashed=false").execute().get('files', []):
                     service.files().copy(fileId=it['id'], body={"name": it['name'], "parents": [nid]}).execute()
-                tr.update("Step 3: Branding .mp4 Files")
+                tr.update("Branding .mp4")
                 for it in list_recursive(service, nid):
+                    tr.check_cancel()
                     if it['name'].lower().endswith('.mp4'):
                         service.files().update(fileId=it['id'], body={"name": it['name'] + " Telegram@TechZoneX.mp4"}).execute()
+                        tr.update(it['name'] + " Telegram@TechZoneX.mp4", 'video/mp4')
                 tr.complete()
 
-            # Action 5: File Info
+            # Action 5: Info
             elif action == "info":
-                tr = ProgressTracker(task_id, 1, "Metadata Check")
+                tr = ProgressTracker(task_id, 1, "Metadata")
                 m = service.files().get(fileId=extract_id(data['url']), fields='name,size,mimeType').execute()
+                tr.meta = {"size": m.get('size', 'N/A'), "type": m['mimeType']}
                 tr.update(m['name'], m['mimeType'])
                 tr.complete()
 
@@ -246,44 +246,66 @@ def handle_run():
                 meta = service.files().get(fileId=s, fields='size,mimeType').execute()
                 tr = ProgressTracker(task_id, 0, "Smart Replace", {"match": meta.get('size')})
                 all_items = list_recursive(service, t, tr)
-                
                 matches = [f for f in all_items if f.get('size') == meta.get('size') and f.get('mimeType') == meta.get('mimeType')]
                 tr.total = len(matches)
                 tr.save()
-
                 for it in matches:
+                    tr.check_cancel()
                     p = it['parents'][0] if 'parents' in it else None
                     service.files().delete(fileId=it['id']).execute()
                     service.files().copy(fileId=r, body={"name": it['name'], "parents":[p] if p else []}).execute()
                     tr.update(it['name'], it['mimeType'])
                 tr.complete()
 
-            # Action 7: Distribution
+            # Action 7: Distribute
             elif action == "distribute":
                 t, s = extract_id(data['target']), extract_id(data['source'])
                 meta = service.files().get(fileId=s, fields='name,size,mimeType').execute()
-                
                 tr = ProgressTracker(task_id, 0, "Distribution", {"file": meta['name']})
                 all_items = list_recursive(service, t, tr)
                 folders = [f for f in all_items if f['mimeType'] == 'application/vnd.google-apps.folder']
                 folders.insert(0, {'id': t})
-                
                 tr.total = len(folders)
                 tr.save()
-
                 for fid in folders:
+                    tr.check_cancel()
                     q = f"'{fid['id']}' in parents and size = '{meta['size']}'"
                     if not service.files().list(q=q).execute().get('files', []):
                         service.files().copy(fileId=s, body={"name": meta['name'], "parents": [fid['id']]}).execute()
-                        tr.update(f"Folder-{fid['id'][:5]}", meta['mimeType'])
-                    else: tr.update(f"Folder-{fid['id'][:5]}", meta['mimeType'], is_skipped=True)
+                        tr.update(f"Folder-{fid['id'][:5]}", "Folders")
+                    else: tr.update(f"Folder-{fid['id'][:5]}", "Folders", is_skipped=True)
                 tr.complete()
 
         except Exception as e:
-            TASKS[task_id] = {"status": "Failed", "error": str(e)}
+            msg = str(e)
+            if "Cancelled" in msg: TASKS[task_id]['status'] = "Cancelled"
+            else: TASKS[task_id]['status'] = "Failed"
+            TASKS[task_id]['is_complete'] = True
 
     threading.Thread(target=worker).start()
     return jsonify({"task_id": task_id})
+
+@app.route('/api/cancel/<tid>', methods=['POST'])
+def cancel_task(tid):
+    if tid in TASKS:
+        # We manually access the object in memory if possible, or just set the dict flag
+        # But since we stored dicts in TASKS, we can't access the class instance easily.
+        # Solution: We only need the tracker to read the dict.
+        # WAIT: In worker, we call tr.check_cancel(). That checks self.cancelled.
+        # But we only stored self.to_dict() in TASKS.
+        # FIX: We need to store the INSTANCE or flag mechanism.
+        # Since we restart often, we will rely on a shared global dict 'TASK_FLAGS'
+        TASK_FLAGS[tid] = True
+        TASKS[tid]['status'] = "Cancelling..."
+    return jsonify({"status": "Signal Sent"})
+
+# Global cancellation flags
+TASK_FLAGS = {}
+
+# Patch ProgressTracker to check global flags
+def check_cancel_patch(self):
+    if TASK_FLAGS.get(self.task_id): raise Exception("Task Cancelled by User")
+ProgressTracker.check_cancel = check_cancel_patch
 
 @app.route('/api/status/<tid>')
 def get_status(tid): return jsonify(TASKS.get(tid, {"status": "Waiting"}))
@@ -305,6 +327,10 @@ def callback():
 
 @app.route('/')
 def h(): return "OK", 200
+
+@app.route('/drive')
+@app.route('/drive/index.html')
+def s(): return send_from_directory('drive', 'index.html')
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 8000)))
