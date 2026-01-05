@@ -3,121 +3,152 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TechZoneX | Drive Cloud Console</title>
+    <title>TechZoneX | Drive Automation Suite</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css" rel="stylesheet">
     <style>
-        .glass { background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(12px); border: 1px solid rgba(51, 65, 85, 0.5); }
-        .btn-blue { background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); box-shadow: 0 4px 15px rgba(37, 99, 235, 0.3); }
-        .btn-green { background: linear-gradient(135deg, #10b981 0%, #059669 100%); box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3); }
+        body { background: #020617; color: #94a3b8; font-family: 'Inter', sans-serif; }
+        .tool-card { background: #0f172a; border: 1px solid #1e293b; border-radius: 1.5rem; transition: 0.3s; }
+        .tool-card:hover { border-color: #3b82f6; transform: translateY(-4px); }
+        .btn-action { background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); color: white; border-radius: 1rem; font-weight: bold; }
+        input { background: #020617 !important; border: 1px solid #334155 !important; color: white !important; }
     </style>
 </head>
-<body class="bg-[#020617] text-slate-300 min-h-screen">
+<body class="p-4 md:p-8">
 
-    <nav class="border-b border-slate-800 bg-[#020617]/90 sticky top-0 z-50">
-        <div class="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
-            <div class="flex items-center space-x-3">
-                <i class="fab fa-google-drive text-blue-500 text-2xl"></i>
-                <h1 class="text-xl font-black text-white uppercase tracking-widest">TechZoneX</h1>
+    <div class="max-w-7xl mx-auto space-y-8">
+        <!-- Header -->
+        <div class="flex flex-col md:flex-row justify-between items-center bg-slate-900 p-6 rounded-3xl border border-slate-800">
+            <div class="flex items-center gap-4 mb-4 md:mb-0">
+                <div class="bg-blue-600 p-3 rounded-2xl shadow-lg shadow-blue-500/20">
+                    <i class="fab fa-google-drive text-white text-2xl"></i>
+                </div>
+                <div>
+                    <h1 class="text-2xl font-black text-white tracking-tighter">TECHZONEX</h1>
+                    <p class="text-xs font-bold text-slate-500 uppercase">Cloud Management Engine</p>
+                </div>
             </div>
-            <div id="auth-ui">
-                <button onclick="login()" class="btn-blue text-white px-6 py-2 rounded-full font-bold text-sm transition-transform hover:scale-105">
-                    <i class="fas fa-key mr-2"></i> Connect Account
-                </button>
+            <div id="auth-status">
+                <button onclick="login()" class="px-8 py-3 bg-blue-600 text-white rounded-full font-bold text-sm hover:scale-105 transition">Connect Drive</button>
             </div>
         </div>
-    </nav>
 
-    <main class="max-w-6xl mx-auto p-6 space-y-8">
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <!-- Task Monitor -->
+        <div id="monitor" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 hidden"></div>
+
+        <!-- Grid -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             
-            <!-- Replace Tool -->
-            <div class="glass p-6 rounded-2xl space-y-4">
-                <h3 class="text-lg font-bold text-white flex items-center">
-                    <i class="fas fa-sync-alt mr-3 text-blue-400"></i> Smart Replace
-                </h3>
-                <input type="text" id="sr-target" placeholder="Target Folder URL" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-sm focus:border-blue-500 outline-none">
-                <input type="text" id="sr-sample" placeholder="Sample File (To Match)" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-sm focus:border-blue-500 outline-none">
-                <input type="text" id="sr-replace" placeholder="Replacement File" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-sm focus:border-blue-500 outline-none">
-                <button onclick="run('smart_replace', {target_url: 'sr-target', sample_url: 'sr-sample', replace_url: 'sr-replace'})" class="w-full btn-blue py-3 rounded-xl font-bold">Start Replacement</button>
+            <!-- Tool 1 -->
+            <div class="tool-card p-6 space-y-4">
+                <h3 class="text-white font-bold flex items-center gap-2"><i class="fas fa-copy text-blue-500"></i> Recursive Copy</h3>
+                <input type="text" id="cp-src" placeholder="Source URL" class="w-full p-3 rounded-xl text-sm outline-none">
+                <input type="text" id="cp-dst" placeholder="Destination URL" class="w-full p-3 rounded-xl text-sm outline-none">
+                <button onclick="run('copy', {src:'cp-src', dst:'cp-dst'})" class="w-full py-3 btn-action">Execute</button>
             </div>
 
-            <!-- Distribute Tool -->
-            <div class="glass p-6 rounded-2xl space-y-4">
-                <h3 class="text-lg font-bold text-white flex items-center">
-                    <i class="fas fa-sitemap mr-3 text-green-400"></i> Smart Distribute
-                </h3>
-                <input type="text" id="sd-target" placeholder="Root Folder URL" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-sm focus:border-green-500 outline-none">
-                <input type="text" id="sd-src" placeholder="Source File URL" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-sm focus:border-green-500 outline-none">
-                <button onclick="run('smart_distribute', {target_url: 'sd-target', source_url: 'sd-src'})" class="w-full btn-green py-3 rounded-xl font-bold">Fill Subfolders</button>
+            <!-- Tool 2 -->
+            <div class="tool-card p-6 space-y-4">
+                <h3 class="text-white font-bold flex items-center gap-2"><i class="fas fa-edit text-purple-500"></i> Bulk Rename</h3>
+                <input type="text" id="rn-url" placeholder="Folder URL" class="w-full p-3 rounded-xl text-sm outline-none">
+                <input type="text" id="rn-s" placeholder="Search String" class="w-full p-3 rounded-xl text-sm outline-none">
+                <input type="text" id="rn-r" placeholder="Replace With" class="w-full p-3 rounded-xl text-sm outline-none">
+                <button onclick="run('rename', {url:'rn-url', search:'rn-s', replace:'rn-r'})" class="w-full py-3 btn-action">Execute</button>
             </div>
 
-            <!-- Copy Tool -->
-            <div class="glass p-6 rounded-2xl space-y-4">
-                <h3 class="text-lg font-bold text-white flex items-center">
-                    <i class="fas fa-clone mr-3 text-purple-400"></i> Recursive Copy
-                </h3>
-                <input type="text" id="cp-src" placeholder="Source Folder URL" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-sm focus:border-purple-500 outline-none">
-                <input type="text" id="cp-dst" placeholder="Destination Folder URL" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-sm focus:border-purple-500 outline-none">
-                <button onclick="run('copy_folder', {source_url: 'cp-src', dest_url: 'cp-dst'})" class="w-full bg-purple-600 py-3 rounded-xl font-bold hover:bg-purple-700 transition">Execute Clone</button>
+            <!-- Tool 4 (Automated Workflow) -->
+            <div class="tool-card p-6 space-y-4 border-dashed border-blue-500/50">
+                <h3 class="text-white font-bold flex items-center gap-2"><i class="fas fa-bolt text-yellow-500"></i> Automated Post</h3>
+                <p class="text-[10px] text-slate-400">Merged 1st src + 2nd src into Unposted folder and renames .mp4</p>
+                <input type="text" id="auto-url" placeholder="First Source URL" class="w-full p-3 rounded-xl text-sm outline-none">
+                <button onclick="run('automated', {url:'auto-url'})" class="w-full py-3 bg-yellow-600 text-white font-bold rounded-xl">Run Workflow</button>
+            </div>
+
+            <!-- Tool 6 -->
+            <div class="tool-card p-6 space-y-4">
+                <h3 class="text-white font-bold flex items-center gap-2"><i class="fas fa-sync text-orange-500"></i> Smart Replace</h3>
+                <input type="text" id="sr-target" placeholder="Target Folder URL" class="w-full p-3 rounded-xl text-sm outline-none">
+                <input type="text" id="sr-sample" placeholder="Sample File URL" class="w-full p-3 rounded-xl text-sm outline-none">
+                <input type="text" id="sr-replace" placeholder="Replacement File URL" class="w-full p-3 rounded-xl text-sm outline-none">
+                <button onclick="run('smart_replace', {target:'sr-target', sample:'sr-sample', replace:'sr-replace'})" class="w-full py-3 btn-action">Execute</button>
+            </div>
+
+            <!-- Tool 7 -->
+            <div class="tool-card p-6 space-y-4">
+                <h3 class="text-white font-bold flex items-center gap-2"><i class="fas fa-share-nodes text-green-500"></i> Distribution</h3>
+                <input type="text" id="sd-target" placeholder="Root Folder URL" class="w-full p-3 rounded-xl text-sm outline-none">
+                <input type="text" id="sd-src" placeholder="Source File URL" class="w-full p-3 rounded-xl text-sm outline-none">
+                <button onclick="run('distribute', {target:'sd-target', source:'sd-src'})" class="w-full py-3 btn-action">Execute</button>
+            </div>
+
+            <!-- Instant Tools (Count & Info) -->
+            <div class="tool-card p-6 space-y-4">
+                <h3 class="text-white font-bold flex items-center gap-2"><i class="fas fa-search text-pink-500"></i> Quick Analysis</h3>
+                <input type="text" id="qa-url" placeholder="File/Folder URL" class="w-full p-3 rounded-xl text-sm outline-none">
+                <div class="flex gap-2">
+                    <button onclick="run('count', {url:'qa-url'})" class="flex-1 py-3 bg-slate-800 rounded-xl text-xs font-bold">Count Files</button>
+                    <button onclick="run('info', {url:'qa-url'})" class="flex-1 py-3 bg-slate-800 rounded-xl text-xs font-bold">Get Info</button>
+                </div>
             </div>
 
         </div>
-
-        <div id="status-box" class="fixed bottom-6 right-6 p-4 rounded-xl bg-slate-800 border border-blue-500 hidden max-w-sm">
-            <div class="flex items-center space-x-3">
-                <div class="animate-spin h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full"></div>
-                <span id="status-text" class="text-sm">Processing task...</span>
-            </div>
-        </div>
-    </main>
+    </div>
 
     <script>
         const API = "https://simple-liana-techzone3201-048a28fa.koyeb.app";
-
         function login() { window.location.href = API + "/auth/login"; }
 
-        function init() {
-            const hash = window.location.hash;
-            if (hash.includes('auth_data=')) {
-                localStorage.setItem('drive_creds', decodeURIComponent(hash.split('auth_data=')[1]));
+        function checkAuth() {
+            const h = window.location.hash;
+            if (h.includes('auth_data=')) {
+                localStorage.setItem('drive_creds', decodeURIComponent(h.split('auth_data=')[1]));
                 window.history.replaceState(null, null, window.location.pathname);
             }
             if (localStorage.getItem('drive_creds')) {
-                document.getElementById('auth-ui').innerHTML = `
-                    <div class="bg-green-500/10 border border-green-500/20 px-4 py-2 rounded-full flex items-center">
-                        <span class="h-2 w-2 bg-green-500 rounded-full mr-2"></span>
-                        <span class="text-xs font-bold text-green-500">Cloud Active</span>
-                        <button onclick="localStorage.removeItem('drive_creds'); location.reload()" class="ml-4 text-[10px] underline text-slate-500">Exit</button>
-                    </div>`;
+                document.getElementById('auth-status').innerHTML = `<div class="bg-green-500/10 text-green-500 px-6 py-2 rounded-full border border-green-500/20 text-xs font-bold flex items-center gap-2"><div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>System Active</div>`;
             }
         }
 
-        async function run(endpoint, fields) {
+        async function run(action, inputs) {
             const creds = localStorage.getItem('drive_creds');
-            if (!creds) return alert("Authorize First!");
+            if (!creds) return alert("System Not Authorized!");
+            const body = { action, creds };
+            for (let k in inputs) body[k] = document.getElementById(inputs[k]).value;
 
-            const body = { creds: creds };
-            for (let key in fields) body[key] = document.getElementById(fields[key]).value;
-
-            const box = document.getElementById('status-box');
-            box.classList.remove('hidden');
-
-            try {
-                const res = await fetch(`${API}/api/${endpoint}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(body)
-                });
-                const data = await res.json();
-                document.getElementById('status-text').innerText = data.status;
-                setTimeout(() => box.classList.add('hidden'), 5000);
-            } catch (e) {
-                alert("Connection Error");
-                box.classList.add('hidden');
-            }
+            const res = await fetch(API + '/api/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+            const data = await res.json();
+            track(data.task_id);
         }
-        window.onload = init;
+
+        function track(id) {
+            const mon = document.getElementById('monitor');
+            mon.classList.remove('hidden');
+            const card = document.createElement('div');
+            card.className = "bg-slate-900 border border-blue-500/30 p-4 rounded-2xl";
+            mon.appendChild(card);
+
+            const t = setInterval(async () => {
+                const r = await fetch(`${API}/api/status/${id}`);
+                const s = await r.json();
+                
+                card.innerHTML = `
+                    <div class="flex justify-between items-center mb-2">
+                        <span class="text-[10px] font-bold text-blue-400">#${id}</span>
+                        <span class="text-[10px] font-bold text-slate-500">${s.status}</span>
+                    </div>
+                    <div class="text-xs text-white font-bold truncate mb-2">${s.last_file || 'Starting...'}</div>
+                    <div class="w-full bg-slate-950 h-1.5 rounded-full overflow-hidden"><div class="bg-blue-600 h-full transition-all duration-500" style="width:${s.percent}%"></div></div>
+                    ${s.data && s.data.count ? `<div class="mt-2 text-xs text-green-400">Total Count: ${s.data.count}</div>` : ''}
+                    ${s.data && s.data.size ? `<div class="mt-2 text-[10px] text-slate-400">Name: ${s.data.name}<br>Size: ${s.data.size} bytes</div>` : ''}
+                `;
+
+                if (s.status === "Completed" || s.status === "Done") {
+                    clearInterval(t);
+                    setTimeout(() => card.remove(), 10000);
+                }
+            }, 2000);
+        }
+        window.onload = checkAuth;
     </script>
 </body>
 </html>
