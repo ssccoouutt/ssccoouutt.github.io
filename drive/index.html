@@ -24,7 +24,6 @@
 
     <div class="max-w-7xl mx-auto space-y-8">
         
-        <!-- Header -->
         <header class="flex flex-col md:flex-row justify-between items-center bg-slate-900/80 p-6 rounded-[2rem] border border-slate-800">
             <div class="flex items-center gap-4 mb-4 md:mb-0">
                 <div class="w-12 h-12 bg-blue-600 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/20">
@@ -43,7 +42,6 @@
             </div>
         </header>
 
-        <!-- Live Monitor -->
         <div id="monitor-panel" class="hidden space-y-4">
             <div class="flex items-center justify-between">
                 <div class="flex items-center gap-2">
@@ -55,10 +53,8 @@
             <div id="task-list" class="grid grid-cols-1 lg:grid-cols-2 gap-4"></div>
         </div>
 
-        <!-- Tools Grid -->
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             
-            <!-- 1. Copy -->
             <div class="glass-panel p-6 rounded-3xl space-y-4">
                 <div class="flex justify-between items-start">
                     <div class="p-3 bg-blue-500/10 rounded-xl"><i class="fas fa-copy text-blue-500"></i></div>
@@ -70,7 +66,6 @@
                 <button onclick="run('copy', {src:'cp-src', dst:'cp-dst'})" class="w-full py-3 btn-glow rounded-xl font-bold text-sm text-white">Start Cloning</button>
             </div>
 
-            <!-- 2. Rename -->
             <div class="glass-panel p-6 rounded-3xl space-y-4">
                 <div class="flex justify-between items-start">
                     <div class="p-3 bg-purple-500/10 rounded-xl"><i class="fas fa-i-cursor text-purple-500"></i></div>
@@ -85,7 +80,6 @@
                 <button onclick="run('rename', {url:'rn-url', search:'rn-s', replace:'rn-r'})" class="w-full py-3 bg-purple-600 hover:bg-purple-700 transition rounded-xl font-bold text-sm text-white">Execute Rename</button>
             </div>
 
-            <!-- 3 & 5. Analysis -->
             <div class="glass-panel p-6 rounded-3xl space-y-4">
                 <div class="flex justify-between items-start">
                     <div class="p-3 bg-pink-500/10 rounded-xl"><i class="fas fa-chart-pie text-pink-500"></i></div>
@@ -99,7 +93,6 @@
                 </div>
             </div>
 
-            <!-- 4. Automation -->
             <div class="glass-panel p-6 rounded-3xl space-y-4 border-dashed border-slate-700">
                 <div class="flex justify-between items-start">
                     <div class="p-3 bg-yellow-500/10 rounded-xl"><i class="fas fa-bolt text-yellow-500"></i></div>
@@ -111,7 +104,6 @@
                 <button onclick="run('automated', {url:'at-url'})" class="w-full py-3 bg-yellow-600 hover:bg-yellow-700 transition rounded-xl font-bold text-sm text-white">Run Sequence</button>
             </div>
 
-            <!-- 6. Smart Replace -->
             <div class="glass-panel p-6 rounded-3xl space-y-4">
                 <div class="flex justify-between items-start">
                     <div class="p-3 bg-orange-500/10 rounded-xl"><i class="fas fa-sync-alt text-orange-500"></i></div>
@@ -124,7 +116,6 @@
                 <button onclick="run('smart_replace', {target:'sr-target', sample:'sr-sample', replace:'sr-replace'})" class="w-full py-3 bg-orange-600 hover:bg-orange-700 transition rounded-xl font-bold text-sm text-white">Swap Matches</button>
             </div>
 
-            <!-- 7. Distribution -->
             <div class="glass-panel p-6 rounded-3xl space-y-4">
                 <div class="flex justify-between items-start">
                     <div class="p-3 bg-emerald-500/10 rounded-xl"><i class="fas fa-network-wired text-emerald-500"></i></div>
@@ -134,6 +125,17 @@
                 <input type="text" id="sd-target" placeholder="Root Target URL" class="w-full p-3 rounded-xl text-sm input-dark">
                 <input type="text" id="sd-src" placeholder="File to Distribute" class="w-full p-3 rounded-xl text-sm input-dark">
                 <button onclick="run('distribute', {target:'sd-target', source:'sd-src'})" class="w-full py-3 bg-emerald-600 hover:bg-emerald-700 transition rounded-xl font-bold text-sm text-white">Start Sync</button>
+            </div>
+
+            <div class="glass-panel p-6 rounded-3xl space-y-4">
+                <div class="flex justify-between items-start">
+                    <div class="p-3 bg-red-500/10 rounded-xl"><i class="fas fa-scissors text-red-500"></i></div>
+                    <span class="text-[10px] font-bold text-slate-600 bg-slate-900 px-2 py-1 rounded">OPT-08</span>
+                </div>
+                <h3 class="text-lg font-bold text-white">Video Trimmer</h3>
+                <p class="text-xs text-slate-500">Extracts first 3 seconds of a Drive video</p>
+                <input type="text" id="tr-url" placeholder="Video Link/ID" class="w-full p-3 rounded-xl text-sm input-dark">
+                <button onclick="run('trim', {url:'tr-url'})" class="w-full py-3 bg-red-600 hover:bg-red-700 transition rounded-xl font-bold text-sm text-white">Trim & Download</button>
             </div>
 
         </div>
@@ -190,7 +192,7 @@
             }
         }
 
-        function dismissTask(id, card) {
+        async function dismissTask(id, card) {
             card.remove();
             const idx = tasks.indexOf(id);
             if(idx > -1) {
@@ -198,6 +200,9 @@
                 localStorage.setItem('active_tasks', JSON.stringify(tasks));
             }
             if(tasks.length === 0) document.getElementById('monitor-panel').classList.add('hidden');
+            
+            // Call API to cleanup server memory/files
+            try { await fetch(`${API}/api/dismiss/${id}`, {method:'POST'}); } catch(e){}
         }
 
         function clearCompleted() {
@@ -209,10 +214,7 @@
 
         function track(id) {
             document.getElementById('monitor-panel').classList.remove('hidden');
-            
-            // Avoid duplicates on reload
             if(document.getElementById(`card-${id}`)) return;
-
             const grid = document.getElementById('task-list');
             const card = document.createElement('div');
             card.id = `card-${id}`;
@@ -224,15 +226,15 @@
                     const r = await fetch(`${API}/api/status/${id}`);
                     const s = await r.json();
 
-                    // If server restarted and task lost, handle gracefully
                     if(s.status === "Waiting" && tasks.includes(id)) {
-                        // Keep polling or mark as lost? Let's assume waiting for worker.
+                        // Keep polling
                     }
 
                     let metaInfo = "";
                     if(s.action === "Copying") metaInfo = `<span class="text-blue-400">#${s.meta.src} <i class="fas fa-arrow-right mx-1"></i> ${s.meta.dst}</span>`;
                     if(s.action === "Renaming") metaInfo = `<span class="text-purple-400">"${s.meta.find}" <i class="fas fa-arrow-right mx-1"></i> "${s.meta.with}"</span>`;
                     if(s.action === "Distribution") metaInfo = `<span class="text-emerald-400">Syncing: ${s.meta.file}</span>`;
+                    if(s.action === "Trim Video") metaInfo = `<span class="text-red-400">Trimming: ${s.meta.id}</span>`;
 
                     let stats = "";
                     let controls = `<button onclick="cancelTask('${id}')" class="text-[10px] font-bold text-red-400 border border-red-500/30 px-3 py-1 rounded hover:bg-red-500/10">CANCEL</button>`;
@@ -240,8 +242,13 @@
                     if(s.is_complete || s.status === "Cancelled") {
                         clearInterval(timer);
                         card.classList.add('task-completed');
-                        controls = `<button onclick="dismissTask('${id}', this.closest('.bg-slate-900\\/50'))" class="text-[10px] font-bold text-slate-300 bg-slate-700 px-3 py-1 rounded hover:bg-slate-600">DISMISS REPORT</button>`;
+                        controls = `<button onclick="dismissTask('${id}', this.closest('.bg-slate-900\\/50'))" class="text-[10px] font-bold text-slate-300 bg-slate-700 px-3 py-1 rounded hover:bg-slate-600">DISMISS</button>`;
                         
+                        // Show Download Button if available
+                        if(s.result_url) {
+                            controls += `<a href="${s.result_url}" target="_blank" class="ml-2 text-[10px] font-bold text-white bg-green-600 px-3 py-1 rounded hover:bg-green-500">DOWNLOAD</a>`;
+                        }
+
                         stats = `<div class="grid grid-cols-3 gap-2 mt-4 pt-4 border-t border-slate-800">`;
                         for(let c in s.categories) stats += `<div class="bg-slate-950 p-2 rounded text-center"><div class="text-[9px] text-slate-500 uppercase">${c}</div><div class="text-xs font-bold text-white">${s.categories[c]}</div></div>`;
                         if(s.meta && s.meta.size) stats += `<div class="col-span-3 text-center text-[10px] text-slate-400 mt-2">File Size: ${s.meta.size} bytes</div>`;
@@ -276,5 +283,3 @@
     </script>
 </body>
 </html>
-
-
