@@ -19,7 +19,7 @@ from googleapiclient.errors import HttpError
 # --- CONFIGURATION ---
 FRONTEND_URL = "https://techzonex.store/drive"
 SERVER_DOMAIN = "https://simple-liana-techzone3201-048a28fa.koyeb.app"
-TEMP_DIR = "/tmp"  # Directory for video processing
+TEMP_DIR = "/tmp"
 
 UNPOSTED_FOLDER_ID = "14tf687_8F4o2oYJTqyCZmvJjq45jRliy"
 SECOND_SOURCE_FOLDER_ID = "12V7EnRIYcSgEtt0PR5fhV8cO22nzYuiv"
@@ -73,13 +73,15 @@ class ProgressTracker:
         self.is_complete = False
         self.cancelled = False
         self.result_url = None
-        self.temp_files = [] # Track files to delete on dismiss
+        self.temp_files = [] 
         self.save()
 
     def check_cancel(self):
-        # Check global flag
         if TASK_FLAGS.get(self.task_id): 
             self.cancelled = True
+            self.status = "Cancelled"
+            self.is_complete = True
+            self.save()
             raise Exception("Task Cancelled by User")
 
     def update_scan(self, count):
@@ -101,12 +103,20 @@ class ProgressTracker:
         self.save()
 
     def complete(self, status="Completed", result_url=None):
-        self.is_complete = True
-        self.status = status
-        if result_url: self.result_url = result_url
-        self.save()
+        if not self.cancelled:
+            self.is_complete = True
+            self.status = status
+            if result_url: self.result_url = result_url
+            self.save()
 
     def save(self):
+        # Calculate percentage
+        pct = 0
+        if self.is_complete: 
+            pct = 100
+        elif self.total > 0:
+            pct = round(((self.current + self.skipped) / self.total * 100), 1)
+        
         TASKS[self.task_id] = {
             "id": self.task_id,
             "action": self.action,
@@ -114,7 +124,7 @@ class ProgressTracker:
             "current": self.current,
             "skipped": self.skipped,
             "remaining": max(0, self.total - (self.current + self.skipped)),
-            "percent": round(((self.current + self.skipped) / self.total * 100), 1) if self.total > 0 and self.total > (self.current + self.skipped) else (100 if self.is_complete else 0),
+            "percent": pct,
             "status": self.status,
             "last_file": self.last_file[:40],
             "categories": self.categories,
@@ -149,13 +159,11 @@ def list_recursive(service, folder_id, tracker=None):
             if tracker: tracker.check_cancel()
             q = f"'{folder_id}' in parents and trashed = false"
             res = service.files().list(q=q, fields="nextPageToken, files(id, name, mimeType, size, parents)", pageToken=page_token).execute()
-            
             for f in res.get('files', []):
                 if f['mimeType'] == 'application/vnd.google-apps.folder':
                     files.append(f)
                     files.extend(list_recursive(service, f['id'], tracker))
                 else: files.append(f)
-            
             if tracker and len(files) % 20 == 0: tracker.update_scan(len(files))
             page_token = res.get('nextPageToken')
             if not page_token: break
@@ -174,11 +182,9 @@ def handle_run():
         try:
             service = get_service(data['creds'])
             
-            # Action 1: Recursive Copy
             if action == "copy":
                 sid = extract_id(data['src'])
                 did = extract_id(data['dst']) or 'root'
-                
                 tr = ProgressTracker(task_id, 0, "Copying", {"src": sid[:8], "dst": "Root" if did=='root' else did[:8]})
                 all_items = list_recursive(service, sid, tr)
                 tr.total = len(all_items)
@@ -188,10 +194,8 @@ def handle_run():
                     tr.check_cancel()
                     m = service.files().get(fileId=s_id, fields="name").execute()
                     p_list = [p_id] if p_id and p_id != 'root' else []
-                    
                     nid = service.files().create(body={"name":m["name"], "mimeType":"application/vnd.google-apps.folder", "parents":p_list}, fields="id").execute()["id"]
                     tr.update(m['name'], 'application/vnd.google-apps.folder')
-                    
                     items = service.files().list(q=f"'{s_id}' in parents and trashed=false").execute().get('files', [])
                     for it in items:
                         if it['mimeType'] == 'application/vnd.google-apps.folder': clone(it['id'], nid)
@@ -201,7 +205,6 @@ def handle_run():
                 clone(sid, did)
                 tr.complete()
 
-            # Action 2: Rename
             elif action == "rename":
                 fid, s, r = extract_id(data['url']), data['search'], data['replace']
                 tr = ProgressTracker(task_id, 0, "Renaming", {"find": s, "with": r})
@@ -217,7 +220,6 @@ def handle_run():
                     else: tr.update(it['name'], it['mimeType'], is_skipped=True)
                 tr.complete()
 
-            # Action 3: Count
             elif action == "count":
                 fid = extract_id(data['url'])
                 tr = ProgressTracker(task_id, 0, "Counting", {"target": fid[:8]})
@@ -226,14 +228,12 @@ def handle_run():
                 for it in all_items: tr.update(it['name'], it['mimeType'])
                 tr.complete()
 
-            # Action 4: Automated
             elif action == "automated":
                 src = extract_id(data['url'])
                 tr = ProgressTracker(task_id, 100, "Automated Workflow")
                 tr.update("Cloning First Source")
                 m = service.files().get(fileId=src, fields="name").execute()
                 nid = service.files().create(body={"name": m["name"], "mimeType": "application/vnd.google-apps.folder", "parents": [UNPOSTED_FOLDER_ID]}, fields="id").execute()["id"]
-                
                 tr.update("Merging Second Source")
                 for it in service.files().list(q=f"'{SECOND_SOURCE_FOLDER_ID}' in parents and trashed=false").execute().get('files', []):
                     service.files().copy(fileId=it['id'], body={"name": it['name'], "parents": [nid]}).execute()
@@ -245,7 +245,6 @@ def handle_run():
                         tr.update(it['name'] + " Telegram@TechZoneX.mp4", 'video/mp4')
                 tr.complete()
 
-            # Action 5: Info
             elif action == "info":
                 tr = ProgressTracker(task_id, 1, "Metadata")
                 m = service.files().get(fileId=extract_id(data['url']), fields='name,size,mimeType').execute()
@@ -253,7 +252,6 @@ def handle_run():
                 tr.update(m['name'], m['mimeType'])
                 tr.complete()
 
-            # Action 6: Smart Replace
             elif action == "smart_replace":
                 t, s, r = extract_id(data['target']), extract_id(data['sample']), extract_id(data['replace'])
                 meta = service.files().get(fileId=s, fields='size,mimeType').execute()
@@ -270,7 +268,6 @@ def handle_run():
                     tr.update(it['name'], it['mimeType'])
                 tr.complete()
 
-            # Action 7: Distribute
             elif action == "distribute":
                 t, s = extract_id(data['target']), extract_id(data['source'])
                 meta = service.files().get(fileId=s, fields='name,size,mimeType').execute()
@@ -289,17 +286,14 @@ def handle_run():
                     else: tr.update(f"Folder-{fid['id'][:5]}", "Folders", is_skipped=True)
                 tr.complete()
 
-            # Action 8: Trim Video
             elif action == "trim":
                 file_id = extract_id(data['url'])
                 tr = ProgressTracker(task_id, 3, "Trim Video", {"id": file_id[:8]})
                 
-                # 1. Setup paths
                 temp_in = os.path.join(TEMP_DIR, f"in_{task_id}.mp4")
                 temp_out = os.path.join(TEMP_DIR, f"trim_{task_id}.mp4")
                 tr.temp_files = [temp_in, temp_out]
                 
-                # 2. Download
                 tr.status = "Downloading from Drive..."
                 tr.save()
                 request = service.files().get_media(fileId=file_id)
@@ -307,25 +301,24 @@ def handle_run():
                     downloader = MediaIoBaseDownload(fh, request)
                     done = False
                     while not done:
-                        tr.check_cancel()
+                        tr.check_cancel() # Check cancel during download
                         status, done = downloader.next_chunk()
                 tr.current = 1
                 tr.save()
 
-                # 3. Trim
+                tr.check_cancel() # Check cancel before FFmpeg
+                
                 tr.status = "Trimming (ffmpeg)..."
                 tr.save()
                 cmd = f"ffmpeg -i {temp_in} -t 3 -c copy {temp_out} -y"
                 process = subprocess.run(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 
                 if process.returncode != 0:
-                    raise Exception("FFmpeg failed. Is it installed?")
+                    raise Exception("FFmpeg failed. Is it installed in Docker?")
                 
                 tr.current = 2
                 tr.save()
 
-                # 4. Finish
-                # We remove the input file now to save space, keep output for download
                 if os.path.exists(temp_in): os.remove(temp_in)
                 
                 tr.current = 3
@@ -333,8 +326,12 @@ def handle_run():
 
         except Exception as e:
             msg = str(e)
-            if "Cancelled" in msg: TASKS[task_id]['status'] = "Cancelled"
-            else: TASKS[task_id]['status'] = f"Failed: {msg}"
+            # Ensure final status is updated correctly
+            if "Cancelled" in msg or TASK_FLAGS.get(task_id):
+                TASKS[task_id]['status'] = "Cancelled"
+                TASKS[task_id]['cancelled'] = True
+            else:
+                TASKS[task_id]['status'] = f"Failed: {msg}"
             TASKS[task_id]['is_complete'] = True
 
     threading.Thread(target=worker).start()
@@ -349,23 +346,18 @@ def cancel_task(tid):
 
 @app.route('/api/dismiss/<tid>', methods=['POST'])
 def dismiss_task(tid):
-    # Clean up server memory
     if tid in TASKS:
-        # Cleanup temp files if any
         for f in TASKS[tid].get('temp_files', []):
             try:
                 if os.path.exists(f): os.remove(f)
             except: pass
         del TASKS[tid]
-    
-    # Clean up flags
     if tid in TASK_FLAGS: del TASK_FLAGS[tid]
     return jsonify({"status": "Dismissed"})
 
 @app.route('/api/download/<tid>', methods=['GET'])
 def download_result(tid):
-    if tid not in TASKS: return "Task not found or expired", 404
-    # Find the output file
+    if tid not in TASKS: return "Task not found", 404
     if 'temp_files' in TASKS[tid] and len(TASKS[tid]['temp_files']) > 1:
         out_file = TASKS[tid]['temp_files'][1]
         if os.path.exists(out_file):
@@ -373,7 +365,7 @@ def download_result(tid):
     return "File not found", 404
 
 @app.route('/api/status/<tid>')
-def get_status(tid): return jsonify(TASKS.get(tid, {"status": "Waiting"}))
+def get_status(tid): return jsonify(TASKS.get(tid, {"status": "Waiting", "is_complete": False}))
 
 @app.route('/auth/login')
 def login():
@@ -399,3 +391,4 @@ def s(): return send_from_directory('drive', 'index.html')
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 8000)))
+
