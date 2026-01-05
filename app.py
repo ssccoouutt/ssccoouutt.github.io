@@ -50,20 +50,26 @@ MIME_MAP = {
 }
 
 class ProgressTracker:
-    def __init__(self, task_id, total, action_name):
+    def __init__(self, task_id, total, action, meta=None):
         self.task_id = task_id
         self.total = total
         self.current = 0
+        self.skipped = 0
         self.status = "In Progress"
-        self.action_name = action_name
+        self.action = action
         self.last_file = ""
         self.categories = {}
+        self.meta = meta or {}
         self.start_time = time.time()
         self.is_complete = False
         self.save()
 
-    def update(self, filename, mime=None):
-        self.current += 1
+    def update(self, filename, mime=None, is_skipped=False):
+        if is_skipped:
+            self.skipped += 1
+        else:
+            self.current += 1
+        
         self.last_file = filename
         if mime:
             cat = "Other"
@@ -82,14 +88,16 @@ class ProgressTracker:
     def save(self):
         TASKS[self.task_id] = {
             "id": self.task_id,
-            "action": self.action_name,
+            "action": self.action,
             "total": self.total,
             "current": self.current,
-            "remaining": max(0, self.total - self.current),
-            "percent": round((self.current / self.total * 100), 2) if self.total > 0 else 0,
+            "skipped": self.skipped,
+            "remaining": max(0, self.total - (self.current + self.skipped)),
+            "percent": round(((self.current + self.skipped) / self.total * 100), 1) if self.total > 0 else 0,
             "status": self.status,
             "last_file": self.last_file[:40],
             "categories": self.categories,
+            "meta": self.meta,
             "is_complete": self.is_complete,
             "elapsed": round(time.time() - self.start_time, 1)
         }
@@ -140,9 +148,8 @@ def run_task():
             if action == "copy":
                 src_id = extract_id(data['src'])
                 dst_id = extract_id(data['dst'])
-                # Pre-scan for total count
                 all_items = list_all(service, src_id)
-                tracker = ProgressTracker(task_id, len(all_items), "Recursive Copy")
+                tracker = ProgressTracker(task_id, len(all_items), "copy", {"source": src_id[:10], "dest": dst_id[:10]})
                 
                 def clone(sid, pid):
                     m = service.files().get(fileId=sid, fields="name").execute()
@@ -162,24 +169,42 @@ def run_task():
                 sample = service.files().get(fileId=s_id, fields='size,mimeType').execute()
                 all_files = list_all(service, t_id)
                 matches = [f for f in all_files if f.get('size') == sample.get('size') and f.get('mimeType') == sample.get('mimeType')]
-                tracker = ProgressTracker(task_id, len(matches), "Smart Replacement")
+                tracker = ProgressTracker(task_id, len(matches), "replace", {"size": sample.get('size'), "mime": sample.get('mimeType')})
                 for f in matches:
                     service.files().delete(fileId=f['id']).execute()
-                    service.files().copy(fileId=r_id, body={"name": f['name']}).execute() # Simplified parents for speed
+                    service.files().copy(fileId=r_id, body={"name": f['name']}).execute()
                     tracker.update(f['name'], f['mimeType'])
                 tracker.complete()
 
-            elif action == "count":
-                all_items = list_all(service, extract_id(data['url']))
-                tracker = ProgressTracker(task_id, len(all_items), "Quick Count")
-                for f in all_items: tracker.update(f['name'], f['mimeType'])
+            elif action == "rename":
+                folder_id = extract_id(data['url'])
+                search, replace = data['search'], data['replace']
+                all_items = list_all(service, folder_id)
+                tracker = ProgressTracker(task_id, len(all_items), "rename", {"find": search, "with": replace})
+                for f in all_items:
+                    if search in f['name']:
+                        nn = f['name'].replace(search, replace)
+                        service.files().update(fileId=f['id'], body={"name": nn}).execute()
+                        tracker.update(nn, f['mimeType'])
+                    else:
+                        tracker.update(f['name'], f['mimeType'], is_skipped=True)
                 tracker.complete()
 
-            elif action == "info":
-                f_id = extract_id(data['url'])
-                meta = service.files().get(fileId=f_id, fields='name,size,mimeType').execute()
-                tracker = ProgressTracker(task_id, 1, "Metadata Check")
-                tracker.update(meta['name'], meta['mimeType'])
+            elif action == "distribute":
+                t_id, s_id = extract_id(data['target']), extract_id(data['source'])
+                src_meta = service.files().get(fileId=s_id, fields='name,size,mimeType').execute()
+                all_folders = [t_id]
+                res = service.files().list(q=f"'{t_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false").execute()
+                for f in res.get('files', []): all_folders.append(f['id']) # Simplified list for demo
+                
+                tracker = ProgressTracker(task_id, len(all_folders), "distribute", {"filename": src_meta['name']})
+                for fid in all_folders:
+                    q = f"'{fid}' in parents and size='{src_meta['size']}' and trashed=false"
+                    if not service.files().list(q=q).execute().get('files', []):
+                        service.files().copy(fileId=s_id, body={"name": src_meta['name'], "parents": [fid]}).execute()
+                        tracker.update(f"Folder-{fid[:5]}", src_meta['mimeType'])
+                    else:
+                        tracker.update(f"Folder-{fid[:5]}", src_meta['mimeType'], is_skipped=True)
                 tracker.complete()
 
         except Exception as e:
@@ -213,3 +238,4 @@ def health(): return "Ready", 200
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 8000)))
+
