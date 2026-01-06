@@ -3,311 +3,199 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TechZoneX | Ultimate Drive Suite</title>
+    <title>TechZoneX</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;500;700&display=swap');
-        body { font-family: 'Space Grotesk', sans-serif; background: #030712; color: #e2e8f0; scroll-behavior: smooth; }
-        .glass-panel { background: rgba(17, 24, 39, 0.7); backdrop-filter: blur(20px); border: 1px solid rgba(55, 65, 81, 0.5); box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1); transition: all 0.3s ease; }
-        .glass-panel:hover { border-color: rgba(59, 130, 246, 0.5); transform: translateY(-2px); }
-        .btn-glow { background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); transition: all 0.3s; }
-        .btn-glow:hover { box-shadow: 0 0 20px rgba(37, 99, 235, 0.5); transform: scale(1.02); }
-        input { background: #0f172a !important; border: 1px solid #1e293b !important; color: white !important; font-size: 0.8rem !important; }
-        
-        /* Menu Dropdown */
-        .dropdown:hover .dropdown-menu { display: block; }
-        ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+        body { font-family: 'Space Grotesk', sans-serif; background: #030712; color: #e2e8f0; }
+        .glass-panel { background: rgba(17, 24, 39, 0.7); backdrop-filter: blur(20px); border: 1px solid rgba(55, 65, 81, 0.5); border-radius: 1.5rem; }
+        .btn-glow { background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); }
+        input, select { background: #0f172a !important; border: 1px solid #1e293b !important; color: white !important; }
+        .hidden-menu { display: none; }
+        .show-menu { display: block; animation: slideDown 0.2s ease-out; }
+        @keyframes slideDown { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
     </style>
 </head>
-<body class="min-h-screen p-4 md:p-8">
+<body class="p-4">
 
-    <div class="max-w-7xl mx-auto space-y-8">
+    <div class="max-w-6xl mx-auto space-y-6">
         
-        <header class="flex flex-col md:flex-row justify-between items-center bg-slate-900/80 p-6 rounded-[2rem] border border-slate-800 sticky top-4 z-50 backdrop-blur-md">
-            <div class="flex items-center gap-4 mb-4 md:mb-0">
-                <div class="w-12 h-12 bg-blue-600 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/20">
-                    <i class="fab fa-google-drive text-white text-2xl"></i>
-                </div>
+        <nav class="bg-slate-900/90 p-4 rounded-2xl flex flex-wrap justify-between items-center gap-4 border border-slate-800 sticky top-2 z-50">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center"><i class="fab fa-google-drive text-white"></i></div>
                 <div>
-                    <h1 class="text-2xl font-bold text-white tracking-tight">TECHZONEX</h1>
+                    <h1 class="font-bold text-white leading-tight">TECHZONEX</h1>
                     <div class="flex items-center gap-2">
                         <div id="status-dot" class="w-2 h-2 bg-red-500 rounded-full"></div>
-                        <span id="status-text" class="text-xs font-medium text-slate-400 uppercase tracking-widest">Offline</span>
+                        <span id="status-text" class="text-[10px] uppercase text-slate-400">Offline</span>
                     </div>
                 </div>
             </div>
             
-            <div class="flex items-center gap-4">
-                <div class="relative dropdown">
-                    <button class="px-6 py-3 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold text-sm transition flex items-center gap-2">
-                        <i class="fas fa-bars"></i> Quick Menu
-                    </button>
-                    <div class="dropdown-menu hidden absolute right-0 top-full mt-2 w-56 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden">
-                        <a href="#card-copy" class="block px-4 py-3 text-sm text-slate-300 hover:bg-slate-800 hover:text-white"><i class="fas fa-copy w-6 text-blue-500"></i> Clone</a>
-                        <a href="#card-rename" class="block px-4 py-3 text-sm text-slate-300 hover:bg-slate-800 hover:text-white"><i class="fas fa-i-cursor w-6 text-purple-500"></i> Rename</a>
-                        <a href="#card-trim" class="block px-4 py-3 text-sm text-slate-300 hover:bg-slate-800 hover:text-white"><i class="fas fa-scissors w-6 text-red-500"></i> Trim</a>
-                        <a href="#card-watermark" class="block px-4 py-3 text-sm text-slate-300 hover:bg-slate-800 hover:text-white"><i class="fas fa-stamp w-6 text-cyan-500"></i> Watermark</a>
-                        <a href="#card-merge" class="block px-4 py-3 text-sm text-slate-300 hover:bg-slate-800 hover:text-white"><i class="fas fa-object-group w-6 text-indigo-500"></i> Merge</a>
-                    </div>
-                </div>
+            <div class="flex items-center gap-3">
+                <button onclick="toggleMenu()" class="px-4 py-2 bg-slate-800 rounded-lg text-sm font-bold text-white border border-slate-700">
+                    <i class="fas fa-bars mr-1"></i> Menu
+                </button>
+                <div id="auth-btn"></div>
+            </div>
 
-                <div id="auth-container">
-                    <button onclick="login()" class="px-8 py-3 btn-glow text-white rounded-xl font-bold text-sm">Initialize</button>
+            <div id="quick-menu" class="hidden-menu w-full basis-full mt-4 bg-slate-950 rounded-xl p-2 border border-slate-800">
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+                    <button onclick="scrollToCard('copy')" class="p-2 text-xs text-slate-300 hover:bg-slate-800 rounded text-left"><i class="fas fa-copy text-blue-500 mr-2"></i>Clone</button>
+                    <button onclick="scrollToCard('rename')" class="p-2 text-xs text-slate-300 hover:bg-slate-800 rounded text-left"><i class="fas fa-i-cursor text-purple-500 mr-2"></i>Rename</button>
+                    <button onclick="scrollToCard('trim')" class="p-2 text-xs text-slate-300 hover:bg-slate-800 rounded text-left"><i class="fas fa-scissors text-red-500 mr-2"></i>Trim</button>
+                    <button onclick="scrollToCard('watermark')" class="p-2 text-xs text-slate-300 hover:bg-slate-800 rounded text-left"><i class="fas fa-stamp text-cyan-500 mr-2"></i>Watermark</button>
                 </div>
             </div>
-        </header>
+        </nav>
 
-        <div id="monitor-panel" class="hidden space-y-4">
-            <div class="flex items-center justify-between">
-                <div class="flex items-center gap-2">
-                    <i class="fas fa-microchip text-blue-500 animate-spin-slow"></i>
-                    <h2 class="text-xs font-bold text-slate-500 uppercase tracking-widest">Active Processes</h2>
-                </div>
-                <button onclick="clearAllReports()" class="text-[10px] text-slate-500 hover:text-white underline">Clear All Reports</button>
+        <div id="monitor-panel" class="hidden">
+            <div class="flex justify-between items-center mb-2 px-2">
+                <h2 class="text-xs font-bold text-slate-500 uppercase">Active Tasks</h2>
+                <button onclick="clearAll()" class="text-[10px] text-blue-400 hover:underline">Clear All</button>
             </div>
-            <div id="task-list" class="grid grid-cols-1 lg:grid-cols-2 gap-4"></div>
+            <div id="task-list" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             
-            <div id="card-copy" class="glass-panel p-6 rounded-3xl space-y-4">
-                <div class="flex justify-between items-start">
-                    <div class="p-3 bg-blue-500/10 rounded-xl"><i class="fas fa-copy text-blue-500"></i></div>
-                    <span class="text-[10px] font-bold text-slate-600 bg-slate-900 px-2 py-1 rounded">OPT-01</span>
-                </div>
-                <h3 class="text-lg font-bold text-white">Recursive Clone</h3>
-                <input type="text" id="cp-src" placeholder="Source Folder ID/URL" class="w-full p-3 rounded-xl text-sm input-dark">
-                <input type="text" id="cp-dst" placeholder="Destination (Empty for Root)" class="w-full p-3 rounded-xl text-sm input-dark">
-                <button onclick="run('copy', {src:'cp-src', dst:'cp-dst'})" class="w-full py-3 btn-glow rounded-xl font-bold text-sm text-white">Start Cloning</button>
-            </div>
-
-            <div id="card-rename" class="glass-panel p-6 rounded-3xl space-y-4">
-                <div class="flex justify-between items-start">
-                    <div class="p-3 bg-purple-500/10 rounded-xl"><i class="fas fa-i-cursor text-purple-500"></i></div>
-                    <span class="text-[10px] font-bold text-slate-600 bg-slate-900 px-2 py-1 rounded">OPT-02</span>
-                </div>
-                <h3 class="text-lg font-bold text-white">Bulk Renamer</h3>
-                <input type="text" id="rn-url" placeholder="Folder URL" class="w-full p-3 rounded-xl text-sm input-dark">
-                <div class="grid grid-cols-2 gap-2">
-                    <input type="text" id="rn-s" placeholder="Find" class="p-3 rounded-xl text-sm input-dark">
-                    <input type="text" id="rn-r" placeholder="Replace" class="p-3 rounded-xl text-sm input-dark">
-                </div>
-                <button onclick="run('rename', {url:'rn-url', search:'rn-s', replace:'rn-r'})" class="w-full py-3 bg-purple-600 hover:bg-purple-700 transition rounded-xl font-bold text-sm text-white">Execute Rename</button>
-            </div>
-
-            <div id="card-info" class="glass-panel p-6 rounded-3xl space-y-4">
-                <div class="flex justify-between items-start">
-                    <div class="p-3 bg-pink-500/10 rounded-xl"><i class="fas fa-chart-pie text-pink-500"></i></div>
-                    <span class="text-[10px] font-bold text-slate-600 bg-slate-900 px-2 py-1 rounded">OPT-03</span>
-                </div>
-                <h3 class="text-lg font-bold text-white">Quick Diagnostics</h3>
-                <input type="text" id="qa-url" placeholder="File or Folder URL" class="w-full p-3 rounded-xl text-sm input-dark">
-                <div class="grid grid-cols-2 gap-3">
-                    <button onclick="run('count', {url:'qa-url'})" class="py-3 bg-slate-800 hover:bg-slate-700 rounded-xl font-bold text-xs uppercase transition text-slate-300">Count Files</button>
-                    <button onclick="run('info', {url:'qa-url'})" class="py-3 bg-slate-800 hover:bg-slate-700 rounded-xl font-bold text-xs uppercase transition text-slate-300">Get Metadata</button>
-                </div>
-            </div>
-
-            <div id="card-trim" class="glass-panel p-6 rounded-3xl space-y-4">
-                <div class="flex justify-between items-start">
-                    <div class="p-3 bg-red-500/10 rounded-xl"><i class="fas fa-scissors text-red-500"></i></div>
-                    <span class="text-[10px] font-bold text-slate-600 bg-slate-900 px-2 py-1 rounded">OPT-08</span>
-                </div>
-                <h3 class="text-lg font-bold text-white">Video Trimmer</h3>
-                <input type="text" id="tr-url" placeholder="Video Link/ID" class="w-full p-3 rounded-xl text-sm input-dark" onblur="fetchDuration(this.value)">
-                <div class="grid grid-cols-2 gap-2">
-                    <input type="text" id="tr-start" placeholder="Start (00:00:00)" class="p-3 rounded-xl text-sm input-dark">
-                    <input type="text" id="tr-end" placeholder="End (00:00:00)" class="p-3 rounded-xl text-sm input-dark">
-                </div>
-                <button onclick="run('trim', {url:'tr-url', start:'tr-start', end:'tr-end'})" class="w-full py-3 bg-red-600 hover:bg-red-700 transition rounded-xl font-bold text-sm text-white">Trim & Upload</button>
-            </div>
-
-            <div id="card-merge" class="glass-panel p-6 rounded-3xl space-y-4">
-                <div class="flex justify-between items-start">
-                    <div class="p-3 bg-indigo-500/10 rounded-xl"><i class="fas fa-object-group text-indigo-500"></i></div>
-                    <span class="text-[10px] font-bold text-slate-600 bg-slate-900 px-2 py-1 rounded">OPT-09</span>
-                </div>
-                <h3 class="text-lg font-bold text-white">Video Merger</h3>
-                <input type="text" id="vm-1" placeholder="First Video Link/ID" class="w-full p-3 rounded-xl text-sm input-dark">
-                <input type="text" id="vm-2" placeholder="Second Video Link/ID" class="w-full p-3 rounded-xl text-sm input-dark">
-                <button onclick="run('merge', {src1:'vm-1', src2:'vm-2'})" class="w-full py-3 bg-indigo-600 hover:bg-indigo-700 transition rounded-xl font-bold text-sm text-white">Merge & Upload</button>
-            </div>
-
-            <div id="card-watermark" class="glass-panel p-6 rounded-3xl space-y-4">
-                <div class="flex justify-between items-start">
-                    <div class="p-3 bg-cyan-500/10 rounded-xl"><i class="fas fa-stamp text-cyan-500"></i></div>
-                    <span class="text-[10px] font-bold text-slate-600 bg-slate-900 px-2 py-1 rounded">OPT-10</span>
-                </div>
-                <h3 class="text-lg font-bold text-white">Video Watermark</h3>
-                <input type="text" id="wm-url" placeholder="Video Link/ID" class="w-full p-3 rounded-xl text-sm input-dark">
-                <select id="wm-type" class="w-full p-3 rounded-xl text-sm bg-slate-900 text-white border border-slate-700 mb-2">
+            <div id="card-watermark" class="glass-panel p-6 space-y-4">
+                <div class="flex justify-between"><i class="fas fa-stamp text-cyan-500 text-xl"></i> <span class="text-[10px] bg-slate-900 px-2 rounded text-slate-500">OPT-10</span></div>
+                <h3 class="font-bold text-white">Video Watermark</h3>
+                <input type="text" id="wm-url" placeholder="Video ID/Link" class="w-full p-3 rounded-xl text-sm">
+                <select id="wm-type" class="w-full p-3 rounded-xl text-sm bg-slate-900 text-white border border-slate-700">
                     <option value="text">Scrolling Text</option>
-                    <option value="image">Logo Overlay (Bottom Right)</option>
+                    <option value="image">Logo Overlay</option>
                 </select>
-                <input type="text" id="wm-text" placeholder="Text (Use | for multiple lines)" class="w-full p-3 rounded-xl text-sm input-dark">
-                <button onclick="run('watermark', {url:'wm-url', type:'wm-type', text:'wm-text'})" class="w-full py-3 bg-cyan-600 hover:bg-cyan-700 transition rounded-xl font-bold text-sm text-white">Apply Watermark</button>
+                <input type="text" id="wm-text" placeholder="Text (Use | for lines)" class="w-full p-3 rounded-xl text-sm">
+                <button onclick="run('watermark', {url:'wm-url', type:'wm-type', text:'wm-text'})" class="w-full py-3 btn-glow rounded-xl font-bold text-sm text-white">Apply</button>
+            </div>
+
+            <div id="card-trim" class="glass-panel p-6 space-y-4">
+                <div class="flex justify-between"><i class="fas fa-scissors text-red-500 text-xl"></i> <span class="text-[10px] bg-slate-900 px-2 rounded text-slate-500">OPT-08</span></div>
+                <h3 class="font-bold text-white">Video Trimmer</h3>
+                <input type="text" id="tr-url" placeholder="Video ID/Link" class="w-full p-3 rounded-xl text-sm" onblur="fetchDuration(this.value)">
+                <div class="grid grid-cols-2 gap-2">
+                    <input type="text" id="tr-start" placeholder="Start" class="p-3 rounded-xl text-sm">
+                    <input type="text" id="tr-end" placeholder="End" class="p-3 rounded-xl text-sm">
+                </div>
+                <button onclick="run('trim', {url:'tr-url', start:'tr-start', end:'tr-end'})" class="w-full py-3 bg-red-600 hover:bg-red-700 rounded-xl font-bold text-sm text-white">Trim</button>
+            </div>
+
+            <div id="card-copy" class="glass-panel p-6 space-y-4">
+                <div class="flex justify-between"><i class="fas fa-copy text-blue-500 text-xl"></i> <span class="text-[10px] bg-slate-900 px-2 rounded text-slate-500">OPT-01</span></div>
+                <h3 class="font-bold text-white">Clone Folder</h3>
+                <input type="text" id="cp-src" placeholder="Source ID" class="w-full p-3 rounded-xl text-sm">
+                <input type="text" id="cp-dst" placeholder="Destination ID" class="w-full p-3 rounded-xl text-sm">
+                <button onclick="run('copy', {src:'cp-src', dst:'cp-dst'})" class="w-full py-3 bg-blue-600 rounded-xl font-bold text-sm text-white">Clone</button>
             </div>
 
         </div>
     </div>
 
     <script>
-        const API = "https://simple-liana-techzone3201-048a28fa.koyeb.app";
-        const tasks = JSON.parse(localStorage.getItem('active_tasks') || '[]');
+        const API = "https://simple-liana-techzone3201-048a28fa.koyeb.app"; // CHANGE THIS
+        const tasks = JSON.parse(localStorage.getItem('tasks') || '[]');
 
-        function login() { window.location.href = API + "/auth/login"; }
+        function toggleMenu() { document.getElementById('quick-menu').classList.toggle('hidden-menu'); document.getElementById('quick-menu').classList.toggle('show-menu'); }
+        function scrollToCard(id) { document.getElementById('card-'+id).scrollIntoView({behavior:'smooth'}); toggleMenu(); }
 
-        async function checkServer() {
-            try {
-                const r = await fetch(API + "/");
-                if(r.ok) {
-                    document.getElementById('status-dot').className = "w-2 h-2 bg-green-500 rounded-full animate-pulse";
-                    document.getElementById('status-text').innerText = "System Online";
-                }
-            } catch(e) {
-                document.getElementById('status-dot').className = "w-2 h-2 bg-red-600 rounded-full";
-                document.getElementById('status-text').innerText = "OFFLINE";
+        async function init() {
+            try { await fetch(API+'/'); document.getElementById('status-dot').className="w-2 h-2 bg-green-500 rounded-full"; document.getElementById('status-text').innerText="Online"; }
+            catch { document.getElementById('status-dot').className="w-2 h-2 bg-red-500 rounded-full"; }
+            
+            const creds = localStorage.getItem('creds');
+            if(window.location.hash.includes('auth_data=')) {
+                localStorage.setItem('creds', JSON.parse(decodeURIComponent(window.location.hash.split('auth_data=')[1])));
+                window.history.replaceState(null,null,' '); location.reload();
             }
+            
+            const btn = document.getElementById('auth-btn');
+            if(creds) btn.innerHTML = `<button onclick="localStorage.removeItem('creds');location.reload()" class="px-4 py-2 bg-red-500/20 text-red-200 rounded-lg text-xs font-bold border border-red-500/50">Logout</button>`;
+            else btn.innerHTML = `<button onclick="location.href='${API}/auth/login'" class="px-4 py-2 bg-green-600 text-white rounded-lg text-xs font-bold">Login</button>`;
+            
+            tasks.forEach(track);
         }
 
-        function initAuth() {
-            checkServer();
-            const h = window.location.hash;
-            if (h.includes('auth_data=')) {
-                localStorage.setItem('drive_creds', decodeURIComponent(h.split('auth_data=')[1]));
-                window.history.replaceState(null, null, window.location.pathname);
-            }
-            if (localStorage.getItem('drive_creds')) {
-                document.getElementById('auth-container').innerHTML = `
-                    <div class="flex items-center gap-3 bg-slate-900 border border-slate-700 px-5 py-2.5 rounded-xl">
-                        <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                        <span class="text-xs font-bold text-slate-300 uppercase tracking-widest">Authorized</span>
-                        <button onclick="localStorage.removeItem('drive_creds'); location.reload()" class="ml-2 text-slate-500 hover:text-white transition"><i class="fas fa-sign-out-alt"></i></button>
-                    </div>`;
-            }
-            tasks.forEach(id => track(id));
-        }
-
-        // Fetch duration logic (same as before)
         async function fetchDuration(url) {
-            if(!url) return;
-            const creds = localStorage.getItem('drive_creds');
-            if (!creds) return;
+            if(!url || !localStorage.getItem('creds')) return;
             document.getElementById('tr-start').value = "Loading...";
             try {
-                const res = await fetch(API + '/api/get_duration', {
-                    method: 'POST', headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({url, creds})
-                });
-                const data = await res.json();
-                if(data.duration) {
-                    document.getElementById('tr-start').value = "00:00:00";
-                    document.getElementById('tr-end').value = data.duration;
-                }
-            } catch(e) { console.error(e); }
+                const r = await fetch(API+'/api/get_duration', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({url, creds:localStorage.getItem('creds')})});
+                const d = await r.json();
+                if(d.duration) { document.getElementById('tr-start').value="00:00:00"; document.getElementById('tr-end').value=d.duration; }
+            } catch(e) {}
         }
 
         async function run(action, fields) {
-            const creds = localStorage.getItem('drive_creds');
-            if (!creds) return alert("Please connect your account first.");
-            const body = { action, creds };
+            if(!localStorage.getItem('creds')) return alert("Login first");
+            const body = {action, creds: localStorage.getItem('creds')};
             for(let k in fields) body[k] = document.getElementById(fields[k]).value;
-
+            
             try {
-                const res = await fetch(API + '/api/run', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
-                });
-                const data = await res.json();
-                tasks.push(data.task_id);
-                localStorage.setItem('active_tasks', JSON.stringify(tasks));
-                track(data.task_id);
-            } catch(e) { alert("Error connecting to cloud engine."); }
-        }
-
-        function cancelTask(id) { fetch(`${API}/api/cancel/${id}`, {method:'POST'}); }
-
-        function dismissTask(id) {
-            const card = document.getElementById(`card-${id}`);
-            if(card) card.remove();
-            const idx = tasks.indexOf(id);
-            if(idx > -1) {
-                tasks.splice(idx, 1);
-                localStorage.setItem('active_tasks', JSON.stringify(tasks));
-            }
-            if(tasks.length === 0) document.getElementById('monitor-panel').classList.add('hidden');
-            fetch(`${API}/api/dismiss/${id}`, {method:'POST'});
-        }
-
-        function clearAllReports() {
-            document.querySelectorAll('button[onclick^="dismissTask"]').forEach(btn => btn.click());
-            if(tasks.length > 0) {
-                 tasks.forEach(id => fetch(`${API}/api/dismiss/${id}`, {method:'POST'}));
-                 localStorage.setItem('active_tasks', '[]');
-                 document.getElementById('task-list').innerHTML = "";
-                 document.getElementById('monitor-panel').classList.add('hidden');
-            }
+                const r = await fetch(API+'/api/run', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+                const d = await r.json();
+                tasks.push(d.task_id); localStorage.setItem('tasks', JSON.stringify(tasks));
+                track(d.task_id);
+            } catch { alert("Failed to start"); }
         }
 
         function track(id) {
             document.getElementById('monitor-panel').classList.remove('hidden');
-            if(document.getElementById(`card-${id}`)) return;
-            const grid = document.getElementById('task-list');
+            if(document.getElementById('c-'+id)) return;
             const card = document.createElement('div');
-            card.id = `card-${id}`;
-            card.className = "bg-slate-900/50 border border-blue-500/20 p-5 rounded-2xl relative overflow-hidden transition-all duration-500";
-            grid.appendChild(card);
+            card.id = 'c-'+id;
+            card.className = "bg-slate-900/80 border border-slate-700 p-4 rounded-xl";
+            document.getElementById('task-list').appendChild(card);
 
-            const timer = setInterval(async () => {
+            const t = setInterval(async () => {
                 try {
-                    const r = await fetch(`${API}/api/status/${id}`);
+                    const r = await fetch(API+'/api/status/'+id);
                     const s = await r.json();
-
-                    // Generate detailed stats HTML if available
-                    let detailedStats = "";
-                    if(s.categories && Object.keys(s.categories).length > 0) {
-                        detailedStats = `<div class="grid grid-cols-4 gap-2 mt-2 pt-2 border-t border-slate-800">`;
-                        for(let c in s.categories) {
-                            if(s.categories[c] > 0) {
-                                detailedStats += `<div class="text-center bg-slate-800/50 rounded p-1"><div class="text-[9px] text-slate-400 uppercase">${c}</div><div class="text-xs font-bold text-white">${s.categories[c]}</div></div>`;
-                            }
-                        }
-                        detailedStats += `</div>`;
+                    
+                    let stats = "";
+                    if(s.categories) {
+                        stats = `<div class="grid grid-cols-3 gap-1 mt-2 border-t border-slate-800 pt-2">` + 
+                        Object.keys(s.categories).map(k => s.categories[k]>0?`<div class="text-[9px] text-slate-400">${k}: <b class="text-white">${s.categories[k]}</b></div>`:"").join('') + `</div>`;
                     }
 
-                    let controls = "";
-                    if(s.is_complete || s.status.includes("Cancelled") || s.status.includes("Failed")) {
-                        clearInterval(timer);
-                        controls = `<button onclick="dismissTask('${id}')" class="text-[10px] font-bold text-slate-300 bg-slate-700 px-3 py-1 rounded hover:bg-slate-600">DISMISS</button>`;
-                        if(s.result_url) controls += `<a href="${s.result_url}" class="ml-2 text-[10px] font-bold text-white bg-green-600 px-3 py-1 rounded">DOWNLOAD</a>`;
-                    } else {
-                        controls = `<button onclick="cancelTask('${id}')" class="text-[10px] font-bold text-red-400 border border-red-500/30 px-3 py-1 rounded">CANCEL</button>`;
+                    let btn = `<button onclick="fetch('${API}/api/cancel/${id}',{method:'POST'})" class="text-red-400 text-[10px] font-bold">CANCEL</button>`;
+                    if(s.is_complete) {
+                        clearInterval(t);
+                        btn = `<button onclick="dismiss('${id}')" class="text-slate-400 text-[10px] font-bold">DISMISS</button>`;
+                        if(s.result_url) btn += `<a href="${s.result_url}" class="ml-2 text-green-400 text-[10px] font-bold">DOWNLOAD</a>`;
                     }
 
                     card.innerHTML = `
-                        <div class="flex justify-between mb-3">
-                            <div class="flex flex-col">
-                                <span class="text-[9px] font-black text-slate-500 uppercase tracking-widest">${s.action}</span>
-                                <span class="text-[9px] text-blue-400">#${id}</span>
-                            </div>
-                            <div class="flex items-center gap-2">${controls}</div>
+                        <div class="flex justify-between mb-2">
+                            <span class="text-[10px] font-bold text-blue-400 uppercase">${s.action}</span>
+                            <div>${btn}</div>
                         </div>
-                        <div class="text-xs font-bold text-white mb-2 truncate">${s.status} <span class="text-slate-500 font-normal">- ${s.last_file || ''}</span></div>
-                        <div class="w-full bg-slate-950 h-1.5 rounded-full overflow-hidden">
-                            <div class="h-full bg-blue-600 transition-all duration-300" style="width:${s.percent}%"></div>
-                        </div>
-                        <div class="flex justify-between mt-2 text-[10px] font-bold text-slate-400">
-                            <div>Done: <span class="text-white">${s.current}</span> / ${s.total}</div>
-                            <div>${s.percent}%</div>
-                        </div>
-                        ${detailedStats}
+                        <div class="text-xs font-bold text-white mb-1 truncate">${s.status}</div>
+                        <div class="w-full bg-slate-950 h-1 rounded overflow-hidden"><div class="bg-blue-500 h-full" style="width:${s.percent}%"></div></div>
+                        ${stats}
                     `;
-                } catch(e) {}
+                } catch {}
             }, 1000);
         }
 
-        window.onload = initAuth;
+        function dismiss(id) {
+            document.getElementById('c-'+id).remove();
+            const idx = tasks.indexOf(id); if(idx>-1) tasks.splice(idx,1);
+            localStorage.setItem('tasks', JSON.stringify(tasks));
+            fetch(API+'/api/dismiss/'+id, {method:'POST'});
+            if(tasks.length===0) document.getElementById('monitor-panel').classList.add('hidden');
+        }
+
+        function clearAll() {
+            tasks.forEach(id => fetch(API+'/api/dismiss/'+id, {method:'POST'}));
+            tasks.length=0; localStorage.setItem('tasks', '[]');
+            document.getElementById('task-list').innerHTML="";
+            document.getElementById('monitor-panel').classList.add('hidden');
+        }
+
+        window.onload = init;
     </script>
 </body>
 </html>
