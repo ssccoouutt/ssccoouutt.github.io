@@ -37,16 +37,22 @@ RUN pip install --no-cache-dir --upgrade pip && \
     "yt-dlp"
 
 # Create folders
-RUN mkdir -p /tmp drive cookies
+RUN mkdir -p /tmp drive /app/cookies
+
+# 3. Download YouTube cookies from Google Drive
+# Note: This requires the file to be publicly accessible or using service account
+# For now, create an empty cookies file, you'll need to upload your cookies.txt manually
+RUN touch /app/cookies/cookies.txt && \
+    echo "# YouTube cookies will be loaded here" > /app/cookies/cookies.txt
 
 # ==========================================
-# 3. BACKEND CODE (app.py) - ENHANCED VERSION
+# 4. BACKEND CODE (app.py) - API ONLY
 # ==========================================
 RUN cat << 'EOF' > app.py
 import os, json, uuid, time, io, sys, logging, traceback, threading, shutil
 import subprocess, datetime, re
 import numpy as np
-from flask import Flask, request, jsonify, redirect, session, send_file, render_template_string
+from flask import Flask, request, jsonify, redirect, session, send_file
 from flask_cors import CORS
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
@@ -72,6 +78,9 @@ SYSTEM_FONT = "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
 # AUTO FOLDERS
 UNPOSTED_FOLDER_ID = "14tf687_8F4o2oYJTqyCZmvJjq45jRliy"
 SECOND_SOURCE_FOLDER_ID = "12V7EnRIYcSgEtt0PR5fhV8cO22nzYuiv"
+
+# YouTube cookies file path
+YOUTUBE_COOKIES_FILE = os.path.join(COOKIES_DIR, "cookies.txt")
 
 RAW_CREDENTIALS = {
     "web": {
@@ -384,21 +393,23 @@ def core_trim(vin, vout, st, et):
 
 # --- YOUTUBE DOWNLOADER ---
 def download_youtube_video(url, quality='best', download_dir=TEMP_DIR):
-    """Download YouTube video using yt-dlp"""
+    """Download YouTube video using yt-dlp with cookies"""
     try:
         ydl_opts = {
             'format': f'bestvideo[height<={quality if quality!="best" else 1080}]+bestaudio/best' if quality != 'best' else 'best',
             'outtmpl': os.path.join(download_dir, '%(title)s.%(ext)s'),
-            'quiet': False,
-            'no_warnings': False,
+            'quiet': True,
+            'no_warnings': True,
             'extract_flat': False,
             'merge_output_format': 'mp4',
             'postprocessors': [{
                 'key': 'FFmpegVideoConvertor',
                 'preferedformat': 'mp4',
             }],
-            'cookiefile': os.path.join(COOKIES_DIR, 'youtube_cookies.txt') if os.path.exists(os.path.join(COOKIES_DIR, 'youtube_cookies.txt')) else None,
+            'cookiefile': YOUTUBE_COOKIES_FILE if os.path.exists(YOUTUBE_COOKIES_FILE) and os.path.getsize(YOUTUBE_COOKIES_FILE) > 100 else None,
         }
+        
+        logger.info(f"Downloading YouTube video with cookies: {os.path.exists(YOUTUBE_COOKIES_FILE)}")
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
@@ -710,442 +721,6 @@ def dl(fname):
     else:
         return "File not found", 404
 
-# --- YouTube HTML Page ---
-YOUTUBE_HTML = '''
-<!DOCTYPE html>
-<html>
-<head>
-    <title>YouTube Downloader - TechZoneX</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;500;700&display=swap');
-        body { font-family: 'Space Grotesk', sans-serif; background: #030712; color: #e2e8f0; }
-        .glass-panel { background: rgba(17, 24, 39, 0.7); backdrop-filter: blur(20px); border: 1px solid rgba(55, 65, 81, 0.5); border-radius: 1rem; }
-        input, select { background: #0f172a !important; border: 1px solid #1e293b !important; color: white !important; }
-        ::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-thumb { background: #334155; }
-        .progress-bar { background: linear-gradient(90deg, #ef4444, #f97316, #eab308); }
-    </style>
-</head>
-<body class="min-h-screen p-4 md:p-6">
-    <div class="max-w-4xl mx-auto">
-        <!-- Header -->
-        <div class="flex items-center justify-between mb-8">
-            <div class="flex items-center gap-3">
-                <div class="w-12 h-12 bg-red-600 rounded-xl flex items-center justify-center">
-                    <i class="fab fa-youtube text-white text-2xl"></i>
-                </div>
-                <div>
-                    <h1 class="text-2xl font-bold text-white">YouTube Downloader</h1>
-                    <p class="text-sm text-slate-400">Download videos directly to your Google Drive</p>
-                </div>
-            </div>
-            <a href="https://techzonex.store" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm font-bold text-slate-300 transition">
-                <i class="fas fa-arrow-left mr-2"></i>Back to Main
-            </a>
-        </div>
-
-        <!-- Auth Status -->
-        <div id="auth-status" class="mb-6"></div>
-
-        <!-- Main Form -->
-        <div class="glass-panel p-6 mb-6">
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <!-- Left Column -->
-                <div class="space-y-4">
-                    <div>
-                        <label class="block text-sm font-medium text-slate-300 mb-2">
-                            <i class="fas fa-link mr-2"></i>YouTube URL
-                        </label>
-                        <input type="text" id="url" placeholder="https://www.youtube.com/watch?v=..." 
-                               class="w-full p-4 rounded-lg text-base">
-                    </div>
-
-                    <div>
-                        <label class="block text-sm font-medium text-slate-300 mb-2">
-                            <i class="fas fa-hd mr-2"></i>Quality
-                        </label>
-                        <select id="quality" class="w-full p-4 rounded-lg">
-                            <option value="best">🎯 Best Available (Recommended)</option>
-                            <option value="1080">📺 1080p (Full HD)</option>
-                            <option value="720">🖥️ 720p (HD)</option>
-                            <option value="480">📱 480p (Standard)</option>
-                            <option value="360">📲 360p (Mobile)</option>
-                        </select>
-                    </div>
-
-                    <div>
-                        <label class="block text-sm font-medium text-slate-300 mb-2">
-                            <i class="fas fa-folder mr-2"></i>Destination Folder ID (Optional)
-                        </label>
-                        <input type="text" id="destination" placeholder="Google Drive Folder ID" 
-                               class="w-full p-4 rounded-lg text-base">
-                        <p class="text-xs text-slate-500 mt-2">Leave empty to upload to your Drive root</p>
-                    </div>
-                </div>
-
-                <!-- Right Column -->
-                <div class="space-y-4">
-                    <div>
-                        <label class="block text-sm font-medium text-slate-300 mb-2">
-                            <i class="fas fa-cogs mr-2"></i>Processing Options
-                        </label>
-                        <select id="process-type" class="w-full p-4 rounded-lg">
-                            <option value="none">⬇️ Download Only (No Processing)</option>
-                            <option value="trim">✂️ Trim Video</option>
-                            <option value="watermark">💧 Add Watermark</option>
-                        </select>
-                    </div>
-
-                    <!-- Trim Options -->
-                    <div id="trim-options" class="hidden space-y-4 p-4 bg-slate-900/50 rounded-lg">
-                        <div class="grid grid-cols-2 gap-4">
-                            <div>
-                                <label class="block text-xs font-medium text-slate-400 mb-1">Start Time</label>
-                                <div class="flex items-center">
-                                    <input type="text" id="start-time" placeholder="00:00:00" 
-                                           class="w-full p-3 rounded text-sm">
-                                    <span class="ml-2 text-slate-500 text-xs">HH:MM:SS</span>
-                                </div>
-                            </div>
-                            <div>
-                                <label class="block text-xs font-medium text-slate-400 mb-1">End Time</label>
-                                <div class="flex items-center">
-                                    <input type="text" id="end-time" placeholder="00:01:00" 
-                                           class="w-full p-3 rounded text-sm">
-                                    <span class="ml-2 text-slate-500 text-xs">HH:MM:SS</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Watermark Options -->
-                    <div id="watermark-options" class="hidden space-y-4 p-4 bg-slate-900/50 rounded-lg">
-                        <div>
-                            <label class="block text-xs font-medium text-slate-400 mb-1">Watermark Type</label>
-                            <select id="wm-type" class="w-full p-3 rounded text-sm">
-                                <option value="text">📝 Text Watermark</option>
-                                <option value="image">🖼️ Logo Image</option>
-                            </select>
-                        </div>
-                        <div id="wm-text-option" class="hidden">
-                            <input type="text" id="wm-text" placeholder="Enter watermark text" 
-                                   class="w-full p-3 rounded text-sm">
-                        </div>
-                        <div id="wm-image-option" class="hidden">
-                            <input type="text" id="wm-logo" placeholder="Google Drive Logo ID" 
-                                   class="w-full p-3 rounded text-sm">
-                            <p class="text-xs text-slate-500 mt-1">Upload logo to Google Drive and paste its file ID</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Download Button -->
-            <div class="mt-8 pt-6 border-t border-slate-800">
-                <button onclick="downloadYouTube()" 
-                        class="w-full py-4 bg-gradient-to-r from-red-600 to-orange-500 hover:from-red-700 hover:to-orange-600 rounded-lg font-bold text-white text-lg transition duration-200 flex items-center justify-center">
-                    <i class="fas fa-download mr-3"></i> Download & Process
-                </button>
-            </div>
-        </div>
-
-        <!-- Progress Section -->
-        <div id="progress" class="glass-panel p-6 mb-6 hidden">
-            <h2 class="text-lg font-bold text-white mb-4 flex items-center">
-                <i class="fas fa-spinner fa-spin mr-3"></i> Download Progress
-            </h2>
-            <div class="mb-4">
-                <div class="w-full bg-slate-800 h-3 rounded-full overflow-hidden">
-                    <div id="progress-bar" class="progress-bar h-full rounded-full transition-all duration-300" style="width: 0%"></div>
-                </div>
-                <div class="flex justify-between mt-2 text-sm">
-                    <span id="progress-text" class="text-slate-300">0%</span>
-                    <span id="status" class="text-slate-400">Initializing...</span>
-                </div>
-            </div>
-            <div id="task-details" class="text-sm text-slate-500"></div>
-        </div>
-
-        <!-- Result Section -->
-        <div id="result" class="glass-panel p-6"></div>
-
-        <!-- Instructions -->
-        <div class="glass-panel p-6 mt-6">
-            <h3 class="text-lg font-bold text-white mb-4">📚 How to Use</h3>
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div class="p-4 bg-slate-900/50 rounded-lg">
-                    <div class="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center mb-3">
-                        <i class="fas fa-sign-in-alt text-white"></i>
-                    </div>
-                    <h4 class="font-bold text-white mb-2">1. Login</h4>
-                    <p class="text-sm text-slate-400">Ensure you're logged in with Google to access Drive</p>
-                </div>
-                <div class="p-4 bg-slate-900/50 rounded-lg">
-                    <div class="w-10 h-10 bg-green-600 rounded-lg flex items-center justify-center mb-3">
-                        <i class="fas fa-link text-white"></i>
-                    </div>
-                    <h4 class="font-bold text-white mb-2">2. Paste URL</h4>
-                    <p class="text-sm text-slate-400">Copy any YouTube video URL and paste it above</p>
-                </div>
-                <div class="p-4 bg-slate-900/50 rounded-lg">
-                    <div class="w-10 h-10 bg-purple-600 rounded-lg flex items-center justify-center mb-3">
-                        <i class="fas fa-cloud-upload-alt text-white"></i>
-                    </div>
-                    <h4 class="font-bold text-white mb-2">3. Download</h4>
-                    <p class="text-sm text-slate-400">Video will be processed and uploaded to your Drive</p>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <script>
-        const API = "https://simple-liana-techzone3201-048a28fa.koyeb.app";
-        
-        // Initialize page
-        document.addEventListener('DOMContentLoaded', function() {
-            checkAuth();
-            setupEventListeners();
-        });
-
-        function checkAuth() {
-            const creds = localStorage.getItem('creds');
-            const authStatus = document.getElementById('auth-status');
-            
-            if (!creds) {
-                authStatus.innerHTML = `
-                    <div class="p-4 bg-red-900/30 border border-red-500/30 rounded-lg">
-                        <div class="flex items-center">
-                            <i class="fas fa-exclamation-triangle text-red-400 text-xl mr-3"></i>
-                            <div>
-                                <p class="text-red-200 font-bold">Authentication Required</p>
-                                <p class="text-red-300 text-sm">Please login with Google to use YouTube Downloader</p>
-                            </div>
-                        </div>
-                        <div class="mt-3 flex gap-2">
-                            <button onclick="goToLogin()" class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded text-sm font-bold">
-                                <i class="fas fa-sign-in-alt mr-2"></i>Login with Google
-                            </button>
-                            <button onclick="window.open('https://techzonex.store', '_blank')" 
-                                    class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded text-sm font-bold">
-                                Go to Main Site
-                            </button>
-                        </div>
-                    </div>`;
-            } else {
-                authStatus.innerHTML = `
-                    <div class="p-4 bg-green-900/30 border border-green-500/30 rounded-lg">
-                        <div class="flex items-center">
-                            <i class="fas fa-check-circle text-green-400 text-xl mr-3"></i>
-                            <div>
-                                <p class="text-green-200 font-bold">Authenticated Successfully</p>
-                                <p class="text-green-300 text-sm">You can now download YouTube videos to your Google Drive</p>
-                            </div>
-                        </div>
-                    </div>`;
-            }
-        }
-
-        function setupEventListeners() {
-            // Toggle options based on process type
-            document.getElementById('process-type').addEventListener('change', function() {
-                const trimOptions = document.getElementById('trim-options');
-                const wmOptions = document.getElementById('watermark-options');
-                
-                trimOptions.classList.add('hidden');
-                wmOptions.classList.add('hidden');
-                
-                if (this.value === 'trim') {
-                    trimOptions.classList.remove('hidden');
-                } else if (this.value === 'watermark') {
-                    wmOptions.classList.remove('hidden');
-                    toggleWatermarkOptions();
-                }
-            });
-            
-            // Toggle watermark options
-            document.getElementById('wm-type').addEventListener('change', toggleWatermarkOptions);
-        }
-
-        function toggleWatermarkOptions() {
-            const wmType = document.getElementById('wm-type').value;
-            document.getElementById('wm-text-option').classList.toggle('hidden', wmType !== 'text');
-            document.getElementById('wm-image-option').classList.toggle('hidden', wmType !== 'image');
-        }
-
-        function goToLogin() {
-            window.open(API + '/auth/login', '_blank');
-        }
-
-        async function downloadYouTube() {
-            const creds = localStorage.getItem('creds');
-            if (!creds) {
-                alert('Please login first!');
-                goToLogin();
-                return;
-            }
-            
-            const url = document.getElementById('url').value.trim();
-            if (!url.includes('youtube.com') && !url.includes('youtu.be')) {
-                showError('Please enter a valid YouTube URL');
-                return;
-            }
-            
-            const quality = document.getElementById('quality').value;
-            const processType = document.getElementById('process-type').value;
-            const destination = document.getElementById('destination').value.trim();
-            
-            const processData = {};
-            if (processType === 'trim') {
-                processData.start = document.getElementById('start-time').value || '00:00:00';
-                processData.end = document.getElementById('end-time').value || '00:01:00';
-                
-                if (!validateTimeFormat(processData.start) || !validateTimeFormat(processData.end)) {
-                    showError('Please use HH:MM:SS time format');
-                    return;
-                }
-            } else if (processType === 'watermark') {
-                const wmType = document.getElementById('wm-type').value;
-                processData.type = wmType;
-                if (wmType === 'text') {
-                    processData.text = document.getElementById('wm-text').value || 'Watermark';
-                } else {
-                    processData.logo_id = document.getElementById('wm-logo').value;
-                    if (!processData.logo_id) {
-                        showError('Please enter a Google Drive Logo ID for image watermark');
-                        return;
-                    }
-                }
-            }
-            
-            // Show progress
-            document.getElementById('progress').classList.remove('hidden');
-            document.getElementById('progress-bar').style.width = '0%';
-            document.getElementById('progress-text').textContent = '0%';
-            document.getElementById('status').textContent = 'Starting download...';
-            document.getElementById('task-details').textContent = '';
-            document.getElementById('result').innerHTML = '';
-            
-            try {
-                const response = await fetch(API + '/api/run', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        action: 'youtube',
-                        creds: creds,
-                        url: url,
-                        quality: quality,
-                        process_type: processType,
-                        process_data: processData,
-                        destination: destination || null
-                    })
-                });
-                
-                if (!response.ok) throw new Error('Network response was not ok');
-                
-                const data = await response.json();
-                
-                if (data.id) {
-                    document.getElementById('task-details').textContent = `Task ID: ${data.id}`;
-                    pollProgress(data.id);
-                } else {
-                    throw new Error('No task ID received');
-                }
-            } catch (error) {
-                showError(`Error: ${error.message}`);
-                document.getElementById('progress').classList.add('hidden');
-            }
-        }
-
-        function validateTimeFormat(time) {
-            const regex = /^(\d{1,2}:)?(\d{1,2}:)?\d{1,2}$/;
-            return regex.test(time);
-        }
-
-        function showError(message) {
-            document.getElementById('result').innerHTML = `
-                <div class="p-4 bg-red-900/30 border border-red-500/30 rounded-lg">
-                    <div class="flex items-center">
-                        <i class="fas fa-times-circle text-red-400 text-xl mr-3"></i>
-                        <p class="text-red-200">${message}</p>
-                    </div>
-                </div>`;
-        }
-
-        function showSuccess(message, downloadUrl, driveUrl) {
-            let html = `
-                <div class="p-4 bg-green-900/30 border border-green-500/30 rounded-lg">
-                    <div class="flex items-center mb-3">
-                        <i class="fas fa-check-circle text-green-400 text-xl mr-3"></i>
-                        <p class="text-green-200 font-bold text-lg">${message}</p>
-                    </div>
-                    <div class="flex flex-wrap gap-3">`;
-            
-            if (downloadUrl) {
-                html += `
-                    <a href="${downloadUrl}" target="_blank" 
-                       class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded text-sm font-bold flex items-center">
-                       <i class="fas fa-download mr-2"></i> Download File
-                    </a>`;
-            }
-            
-            if (driveUrl) {
-                html += `
-                    <a href="${driveUrl}" target="_blank" 
-                       class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm font-bold flex items-center">
-                       <i class="fab fa-google-drive mr-2"></i> Open in Drive
-                    </a>`;
-            }
-            
-            html += `
-                    </div>
-                </div>`;
-            
-            document.getElementById('result').innerHTML = html;
-        }
-
-        async function pollProgress(taskId) {
-            const interval = setInterval(async () => {
-                try {
-                    const response = await fetch(API + '/api/status/' + taskId);
-                    const status = await response.json();
-                    
-                    if (status.percent !== undefined) {
-                        document.getElementById('progress-bar').style.width = status.percent + '%';
-                        document.getElementById('progress-text').textContent = status.percent + '%';
-                        document.getElementById('status').textContent = status.status;
-                    }
-                    
-                    if (status.is_complete) {
-                        clearInterval(interval);
-                        
-                        if (status.status.includes('Failed') || status.status.includes('Cancelled')) {
-                            showError(status.status);
-                        } else {
-                            showSuccess('✅ Download Complete!', status.result_url, status.drive_link);
-                        }
-                        
-                        // Hide progress after 5 seconds
-                        setTimeout(() => {
-                            document.getElementById('progress').classList.add('hidden');
-                        }, 5000);
-                    }
-                } catch (error) {
-                    clearInterval(interval);
-                    showError(`Error checking progress: ${error.message}`);
-                    document.getElementById('progress').classList.add('hidden');
-                }
-            }, 1000);
-        }
-    </script>
-</body>
-</html>
-'''
-
-@app.route('/YouTube')
-def youtube_page():
-    return render_template_string(YOUTUBE_HTML)
-
 @app.route('/auth/login')
 def login():
     f = Flow.from_client_config(RAW_CREDENTIALS, scopes=SCOPES)
@@ -1169,5 +744,5 @@ if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8000)
 EOF
 
-# 4. Run Server
+# 5. Run Server
 CMD ["gunicorn", "app:app", "--bind", "0.0.0.0:8000", "--timeout", "1200", "--workers", "1", "--threads", "4"]
