@@ -6,6 +6,8 @@ import subprocess
 import io
 import datetime
 import numpy as np
+import threading  # <--- FIXED: This was missing
+import requests   # <--- Added for safety
 
 from flask import Flask, request, jsonify, redirect, session, send_from_directory, send_file
 from flask_cors import CORS
@@ -20,7 +22,7 @@ from moviepy.editor import VideoFileClip, ImageClip, CompositeVideoClip
 from PIL import Image, ImageDraw, ImageFont
 
 # --- CONFIGURATION ---
-SERVER_DOMAIN = "https://simple-liana-techzone3201-048a28fa.koyeb.app" # YOUR KOYEB URL
+SERVER_DOMAIN = "https://simple-liana-techzone3201-048a28fa.koyeb.app" 
 FRONTEND_URL = "https://techzonex.store/drive"
 TEMP_DIR = "/tmp"
 
