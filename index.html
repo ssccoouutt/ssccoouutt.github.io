@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TechZoneX Watermark</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>body{background:#0f172a;color:#fff;font-family:sans-serif}.glass{background:#1e293b;padding:2rem;border-radius:1rem;border:1px solid #334155}input,select{background:#020617;border:1px solid #334155;color:#fff;width:100%;padding:0.5rem;margin-bottom:1rem;border-radius:0.5rem}</style>
+</head>
+<body class="p-4 max-w-lg mx-auto space-y-4">
+    <div class="glass flex justify-between items-center">
+        <h1 class="font-bold text-xl">Watermarker</h1>
+        <div id="auth"></div>
+    </div>
+    <div class="glass">
+        <label class="text-xs text-gray-400">Video Drive Link</label>
+        <input type="text" id="url" placeholder="https://drive.google.com/file/d/...">
+        
+        <label class="text-xs text-gray-400">Type</label>
+        <select id="type" onchange="toggle()">
+            <option value="text">Scrolling Text</option>
+            <option value="image">Logo Overlay</option>
+        </select>
+        
+        <div id="txt-in">
+            <label class="text-xs text-gray-400">Text (Use | for new line)</label>
+            <input type="text" id="text" placeholder="@TechZoneX">
+        </div>
+        
+        <div id="img-in" class="hidden">
+            <label class="text-xs text-gray-400">Logo File ID (Drive)</label>
+            <input type="text" id="logo" placeholder="ID of PNG">
+        </div>
+        
+        <button onclick="run()" class="w-full bg-blue-600 py-2 rounded font-bold hover:bg-blue-500">START PROCESS</button>
+    </div>
+    <div id="mon" class="glass hidden">
+        <div class="flex justify-between mb-2"><span id="st">Starting...</span><span id="pc">0%</span></div>
+        <div class="w-full bg-black h-2 rounded"><div id="bar" class="bg-blue-500 h-full transition-all" style="width:0%"></div></div>
+        <div id="dl" class="mt-4 hidden text-center"><a id="lnk" class="bg-green-600 px-4 py-2 rounded font-bold">DOWNLOAD</a></div>
+    </div>
+
+    <script>
+        // *** IMPORTANT: This connects Frontend to Backend ***
+        const API = "https://simple-liana-techzone3201-048a28fa.koyeb.app"; 
+
+        function toggle() { 
+            const t = document.getElementById('type').value; 
+            document.getElementById('txt-in').style.display = t==='text'?'block':'none';
+            document.getElementById('img-in').style.display = t==='image'?'block':'none';
+        }
+
+        function init() {
+            if(window.location.hash.includes('auth_data=')) {
+                localStorage.setItem('c', JSON.parse(decodeURIComponent(window.location.hash.split('auth_data=')[1])));
+                window.history.replaceState(null,null,' ');
+            }
+            const c = localStorage.getItem('c');
+            // Login button points to Koyeb Backend to start OAuth flow
+            document.getElementById('auth').innerHTML = c ? 
+                `<button onclick="localStorage.removeItem('c');location.reload()" class="text-red-400 text-sm">Logout</button>` : 
+                `<a href="${API}/auth/login" class="bg-green-600 px-3 py-1 rounded text-sm">Login</a>`;
+            toggle();
+        }
+
+        async function run() {
+            if(!localStorage.getItem('c')) return alert("Login First");
+            document.getElementById('mon').classList.remove('hidden');
+            const b = {
+                creds: localStorage.getItem('c'), url: document.getElementById('url').value,
+                type: document.getElementById('type').value, text: document.getElementById('text').value,
+                logo_id: document.getElementById('logo').value
+            };
+            try {
+                const r = await fetch(API+'/api/run', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(b)});
+                const d = await r.json();
+                const i = setInterval(async()=>{
+                    const s = await (await fetch(API+'/api/status/'+d.id)).json();
+                    document.getElementById('st').innerText = s.status; document.getElementById('pc').innerText = s.pct+"%";
+                    document.getElementById('bar').style.width = s.pct+"%";
+                    if(s.done) { 
+                        clearInterval(i); 
+                        if(s.url) { 
+                            document.getElementById('dl').classList.remove('hidden'); 
+                            document.getElementById('lnk').href=s.url; 
+                        } 
+                    }
+                }, 1000);
+            } catch(e) { alert("Server Error: " + e); }
+        }
+        init();
+    </script>
+</body>
+</html>
