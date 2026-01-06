@@ -3,11 +3,11 @@
 # ==========================================
 FROM python:3.9-slim
 
-# Install system dependencies (FFmpeg, ImageMagick, Fonts, Build Tools)
-# We install 'procps' to help with debugging if needed
+# Install system dependencies
+# Added 'fonts-liberation' to fix the font 404 error
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-    ffmpeg imagemagick wget curl git build-essential libmagic1 file procps && \
+    ffmpeg imagemagick wget curl git build-essential libmagic1 file procps fonts-liberation && \
     # Fix ImageMagick policy for text rendering
     if [ -f /etc/ImageMagick-6/policy.xml ]; then \
         sed -i 's/none/read,write/g' /etc/ImageMagick-6/policy.xml; \
@@ -70,7 +70,6 @@ from moviepy.editor import VideoFileClip, ImageClip, CompositeVideoClip
 from PIL import Image, ImageDraw, ImageFont
 
 # --- LOGGING SETUP ---
-# This ensures logs appear in Koyeb's console
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
@@ -83,9 +82,8 @@ SERVER_DOMAIN = "https://simple-liana-techzone3201-048a28fa.koyeb.app"
 FRONTEND_URL = "https://techzonex.store/drive"
 TEMP_DIR = "/tmp"
 
-# Hardcoded IDs
-WATERMARK_LOGO_ID = "1tRu68CPASrZebcKAmAKpqfI6Hw_WHhiW"
-FONT_URL = "https://github.com/liberationfonts/liberation-fonts/files/7261489/LiberationSans-Bold.ttf"
+# SYSTEM FONT PATH (Installed via Dockerfile)
+SYSTEM_FONT = "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
 
 RAW_CREDENTIALS = {
     "web": {
@@ -110,49 +108,21 @@ CORS(app, resources={r"/*": {"origins": "*"}})
 TASKS = {}
 TASK_FLAGS = {}
 
-# --- PROGRESS TRACKER ---
 class ProgressTracker:
     def __init__(self, task_id):
-        self.task_id = task_id
-        self.status = "Initializing..."
-        self.percent = 0
-        self.is_complete = False
-        self.cancelled = False
-        self.result_url = None
-        self.temp_files = []
+        self.task_id = task_id; self.status = "Initializing..."; self.percent = 0
+        self.is_complete = False; self.cancelled = False; self.result_url = None; self.temp_files = []
         self.save()
-
     def update(self, status, percent):
-        if TASK_FLAGS.get(self.task_id):
-            raise Exception("Task Cancelled")
-        self.status = status
-        self.percent = percent
-        logger.info(f"Task {self.task_id}: {status} ({percent}%)")
-        self.save()
-
+        if TASK_FLAGS.get(self.task_id): raise Exception("Task Cancelled")
+        self.status = status; self.percent = percent; logger.info(f"Task {self.task_id}: {status} ({percent}%)"); self.save()
     def complete(self, result_url=None):
-        self.status = "Done"
-        self.percent = 100
-        self.is_complete = True
-        self.result_url = result_url
-        self.save()
-
+        self.status = "Done"; self.percent = 100; self.is_complete = True; self.result_url = result_url; self.save()
     def fail(self, error_msg):
-        self.status = f"Failed: {error_msg}"
-        self.is_complete = True
-        logger.error(f"Task {self.task_id} Failed: {error_msg}")
-        self.save()
-
+        self.status = f"Failed: {error_msg}"; self.is_complete = True; logger.error(f"Task {self.task_id} Failed: {error_msg}"); self.save()
     def save(self):
-        TASKS[self.task_id] = {
-            "id": self.task_id,
-            "status": self.status,
-            "percent": self.percent,
-            "is_complete": self.is_complete,
-            "result_url": self.result_url
-        }
+        TASKS[self.task_id] = {"id": self.task_id, "status": self.status, "percent": self.percent, "is_complete": self.is_complete, "result_url": self.result_url}
 
-# --- GOOGLE HELPERS ---
 def get_service(creds_json):
     creds = Credentials.from_authorized_user_info(json.loads(creds_json), SCOPES)
     if creds and creds.expired and creds.refresh_token: creds.refresh(Request())
@@ -171,45 +141,33 @@ def download_file(service, file_id, path):
     with io.FileIO(path, 'wb') as fh:
         downloader = MediaIoBaseDownload(fh, request)
         done = False
-        while not done:
-            status, done = downloader.next_chunk()
-    logger.info("Download complete")
+        while not done: status, done = downloader.next_chunk()
 
 def upload_file(service, path, name):
     logger.info(f"Uploading {path} as {name}")
     file_metadata = {'name': name}
     media = MediaFileUpload(path, mimetype='video/mp4', resumable=True)
     f = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
-    logger.info(f"Upload complete. ID: {f.get('id')}")
     return f
 
-# --- CORE WATERMARK LOGIC ---
 def process_watermark(video_path, output_path, type, text=None, logo_path=None):
     logger.info(f"Starting MoviePy processing. Type: {type}")
-    
-    # 1. Load Video
     video = VideoFileClip(video_path)
-    logger.info(f"Video loaded. Duration: {video.duration}, Size: {video.size}")
 
     if type == "text":
-        # Download Font
-        font_path = os.path.join(TEMP_DIR, "LiberationSans-Bold.ttf")
-        if not os.path.exists(font_path):
-            logger.info("Downloading font...")
-            subprocess.run(["wget", "-O", font_path, FONT_URL], check=True)
-        
-        # Load Font
+        # Use System Font (Robust against 404s)
         try:
-            font = ImageFont.truetype(font_path, 40)
-        except Exception as e:
-            logger.error(f"Font load failed: {e}. Using default.")
+            if os.path.exists(SYSTEM_FONT):
+                font = ImageFont.truetype(SYSTEM_FONT, 40)
+            else:
+                logger.warning("System font not found, falling back to default.")
+                font = ImageFont.load_default()
+        except Exception:
             font = ImageFont.load_default()
 
-        # Parse Texts
         texts = [t.strip() for t in text.split('|')]
         if not texts or texts == [""]: texts = ["@TechZoneX"]
 
-        # Pre-calc Metrics
         text_metrics = []
         temp_draw = ImageDraw.Draw(Image.new('RGB', (1, 1)))
         for txt in texts:
@@ -218,116 +176,78 @@ def process_watermark(video_path, output_path, type, text=None, logo_path=None):
 
         def frame_filter(get_frame, t):
             frame = get_frame(t)
-            if t < 5: return frame # Delay
-            
-            # Convert frame to PIL
-            pil_img = Image.fromarray(frame)
-            draw = ImageDraw.Draw(pil_img, 'RGBA')
-            
-            cycle_time = t - 5
-            total_cycle = (video.w + max(m['width'] for m in text_metrics)) / 40 + 30
+            if t < 5: return frame
+            pil_img = Image.fromarray(frame); draw = ImageDraw.Draw(pil_img, 'RGBA')
+            cycle_time = t - 5; total_cycle = (video.w + max(m['width'] for m in text_metrics)) / 40 + 30
             curr_metric = text_metrics[int(cycle_time/total_cycle) % len(text_metrics)]
-            active_dur = (video.w + curr_metric['width']) / 40
-            time_in = cycle_time % total_cycle
-            
+            active_dur = (video.w + curr_metric['width']) / 40; time_in = cycle_time % total_cycle
             if time_in <= active_dur:
-                progress = time_in / active_dur
-                x = int(video.w - progress * (video.w + curr_metric['width']))
+                progress = time_in / active_dur; x = int(video.w - progress * (video.w + curr_metric['width']))
                 y = video.h - 32 - curr_metric['height']
-                # Draw Background
                 draw.rectangle([(x, y), (x+curr_metric['width']+20, y+curr_metric['height']+20)], fill=(0,0,0,220))
-                # Draw Text
                 draw.text((x+10, y+10-curr_metric['bbox'][1]), curr_metric['text'], font=font, fill=(255,255,255,255))
-            
             return np.array(pil_img)
-
         final_clip = video.fl(frame_filter)
 
     else:
         # Logo Logic
         logger.info("Processing Logo Overlay...")
+        if not os.path.exists(logo_path): raise Exception("Logo file did not download correctly.")
         logo_img = Image.open(logo_path).convert('RGBA')
         logo_np = np.array(logo_img)
         logo_h = int(video.h * 0.07)
         logo_clip = ImageClip(logo_np).set_duration(video.duration).resize(height=logo_h).set_opacity(1.0).set_pos(('right','bottom'))
         final_clip = CompositeVideoClip([video, logo_clip])
 
-    # Write File
-    logger.info("Writing video file (this takes time)...")
-    # preset='ultrafast' is key for cloud environments to avoid timeouts
-    final_clip.write_videofile(
-        output_path, 
-        codec='libx264', 
-        audio_codec='aac', 
-        preset='ultrafast', 
-        threads=4, 
-        logger=None # Disable MoviePy logger to prevent log spam, we rely on ours
-    )
+    final_clip.write_videofile(output_path, codec='libx264', audio_codec='aac', preset='ultrafast', threads=4, logger=None)
     video.close()
     if type == "image": final_clip.close()
-    logger.info("Video processing finished.")
 
-# --- API ---
 @app.route('/api/run', methods=['POST'])
 def handle_run():
-    data = request.json
-    task_id = str(uuid.uuid4())[:8]
-    
+    data = request.json; task_id = str(uuid.uuid4())[:8]
     def worker():
         tr = ProgressTracker(task_id)
         try:
             logger.info(f"--- STARTING TASK {task_id} ---")
             service = get_service(data['creds'])
-            
             file_id = extract_id(data['url'])
-            if not file_id: raise Exception("Invalid Google Drive Link")
+            if not file_id: raise Exception("Invalid Video Link")
 
             wtype = data.get('type')
             wtext = data.get('text', "")
+            logo_id = extract_id(data.get('logo_id', "")) # Get logo ID from user
 
-            # Paths
             vin = os.path.join(TEMP_DIR, f"in_{task_id}.mp4")
             vout = os.path.join(TEMP_DIR, f"wm_{task_id}.mp4")
             lin = os.path.join(TEMP_DIR, f"logo_{task_id}.png")
             tr.temp_files = [vin, vout, lin]
 
-            # 1. Download
             tr.update("Downloading Video...", 10)
             download_file(service, file_id, vin)
 
-            # 2. Prepare Logo if needed
             if wtype == "image":
-                tr.update("Fetching Logo...", 30)
-                download_file(service, WATERMARK_LOGO_ID, lin)
+                if not logo_id: raise Exception("Logo File ID is required for Image mode")
+                tr.update("Downloading Logo...", 30)
+                download_file(service, logo_id, lin)
 
-            # 3. Process
-            tr.update("Rendering Watermark (Please Wait)...", 50)
+            tr.update("Rendering Watermark...", 50)
             process_watermark(vin, vout, wtype, wtext, lin)
 
-            # 4. Upload
-            tr.update("Uploading Result...", 90)
+            tr.update("Uploading...", 90)
             upload_file(service, vout, f"Watermarked_{task_id}.mp4")
 
             tr.complete(result_url=f"{SERVER_DOMAIN}/api/download/{task_id}")
-            logger.info(f"--- TASK {task_id} COMPLETED SUCCESSFULY ---")
-
+            logger.info(f"--- SUCCESS {task_id} ---")
         except Exception as e:
-            # Capture full traceback for debugging
-            err_msg = str(e)
-            tb = traceback.format_exc()
-            logger.error(f"TASK FAILED: {err_msg}\n{tb}")
-            tr.fail(err_msg)
-
+            err = str(e); tb = traceback.format_exc(); logger.error(f"FAIL: {err}\n{tb}"); tr.fail(err)
     threading.Thread(target=worker).start()
     return jsonify({"task_id": task_id})
 
-# --- BASICS ---
 @app.route('/')
 def h(): return "OK", 200
-
 @app.route('/api/status/<tid>')
 def s(tid): return jsonify(TASKS.get(tid, {"status": "Waiting", "is_complete": False}))
-
 @app.route('/api/dismiss/<tid>', methods=['POST'])
 def d(tid):
     if tid in TASKS:
@@ -335,25 +255,21 @@ def d(tid):
             if os.path.exists(f): os.remove(f)
         del TASKS[tid]
     return jsonify({})
-
 @app.route('/api/download/<tid>', methods=['GET'])
 def dl(tid):
     if tid not in TASKS: return "404", 404
     for f in TASKS[tid].get('temp_files', []):
         if os.path.exists(f): return send_file(f, as_attachment=True, download_name="watermarked.mp4")
     return "404", 404
-
 @app.route('/auth/login')
 def l():
     f = Flow.from_client_config(RAW_CREDENTIALS, scopes=SCOPES); f.redirect_uri = f"{SERVER_DOMAIN}/callback"
     u, s = f.authorization_url(access_type='offline', prompt='consent'); session['state'] = s; return redirect(u)
-
 @app.route('/callback')
 def cb():
     f = Flow.from_client_config(RAW_CREDENTIALS, scopes=SCOPES, state=session.get('state')); f.redirect_uri = f"{SERVER_DOMAIN}/callback"
     f.fetch_token(authorization_response=request.url)
     return redirect(f"{FRONTEND_URL}#auth_data={json.dumps(f.credentials.to_json())}")
-
 @app.route('/drive/index.html')
 def i(): return send_from_directory('drive', 'index.html')
 
@@ -371,7 +287,6 @@ RUN cat << 'EOF' > drive/index.html
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Watermark Tool</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
     <style>
         body { font-family: sans-serif; background: #030712; color: #e2e8f0; }
         .glass { background: #1e293b; border: 1px solid #334155; border-radius: 1rem; padding: 1.5rem; }
@@ -390,13 +305,20 @@ RUN cat << 'EOF' > drive/index.html
         <input type="text" id="url" placeholder="Google Drive Link">
 
         <label class="text-xs text-gray-400">Type</label>
-        <select id="type">
+        <select id="type" onchange="toggleInputs()">
             <option value="text">Scrolling Text</option>
             <option value="image">Logo Overlay</option>
         </select>
 
-        <label class="text-xs text-gray-400">Text Content (if Type is Text)</label>
-        <input type="text" id="text" placeholder="Enter text here">
+        <div id="text-input">
+            <label class="text-xs text-gray-400">Text Content</label>
+            <input type="text" id="text" placeholder="Enter text here">
+        </div>
+
+        <div id="logo-input" class="hidden">
+            <label class="text-xs text-gray-400">Logo File ID (Google Drive)</label>
+            <input type="text" id="logo_id" placeholder="Paste ID of png/jpg in Drive">
+        </div>
 
         <button onclick="run()" class="w-full py-3 bg-blue-600 hover:bg-blue-700 rounded-lg font-bold">START PROCESS</button>
     </div>
@@ -413,6 +335,17 @@ RUN cat << 'EOF' > drive/index.html
     <script>
         const API = "https://simple-liana-techzone3201-048a28fa.koyeb.app";
         let tid = null;
+
+        function toggleInputs() {
+            const type = document.getElementById('type').value;
+            if(type === 'image') {
+                document.getElementById('text-input').classList.add('hidden');
+                document.getElementById('logo-input').classList.remove('hidden');
+            } else {
+                document.getElementById('text-input').classList.remove('hidden');
+                document.getElementById('logo-input').classList.add('hidden');
+            }
+        }
 
         function init() {
             const h = window.location.hash;
@@ -437,7 +370,8 @@ RUN cat << 'EOF' > drive/index.html
                 creds: localStorage.getItem('creds'),
                 url: document.getElementById('url').value,
                 type: document.getElementById('type').value,
-                text: document.getElementById('text').value
+                text: document.getElementById('text').value,
+                logo_id: document.getElementById('logo_id').value
             };
 
             try {
@@ -479,5 +413,4 @@ EOF
 # ==========================================
 # 5. RUN THE SERVER
 # ==========================================
-# Restrict workers to 1 to prevent OOM
 CMD ["gunicorn", "app:app", "--bind", "0.0.0.0:8000", "--timeout", "1200", "--workers", "1", "--threads", "4"]
