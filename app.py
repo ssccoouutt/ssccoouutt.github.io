@@ -20,12 +20,14 @@ from moviepy.editor import VideoFileClip, ImageClip, CompositeVideoClip
 from PIL import Image, ImageDraw, ImageFont
 
 # --- CONFIGURATION ---
-SERVER_DOMAIN = "https://simple-liana-techzone3201-048a28fa.koyeb.app" # CHANGE THIS IF NEEDED
+SERVER_DOMAIN = "https://simple-liana-techzone3201-048a28fa.koyeb.app" # YOUR KOYEB URL
 FRONTEND_URL = "https://techzonex.store/drive"
 TEMP_DIR = "/tmp"
 
-# Helper constants
-WATERMARK_LOGO_ID = "1tRu68CPASrZebcKAmAKpqfI6Hw_WHhiW" # Hardcoded logo from your script
+# Folder/File Constants
+UNPOSTED_FOLDER_ID = "14tf687_8F4o2oYJTqyCZmvJjq45jRliy"
+SECOND_SOURCE_FOLDER_ID = "12V7EnRIYcSgEtt0PR5fhV8cO22nzYuiv"
+WATERMARK_LOGO_ID = "1tRu68CPASrZebcKAmAKpqfI6Hw_WHhiW"
 FONT_URL = "https://github.com/liberationfonts/liberation-fonts/files/7261489/LiberationSans-Bold.ttf"
 
 RAW_CREDENTIALS = {
@@ -45,7 +47,7 @@ os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 SCOPES = ["https://www.googleapis.com/auth/drive"]
 
 app = Flask(__name__)
-app.secret_key = "static_key_for_persistence"
+app.secret_key = "static_key_for_persistence_fix"
 CORS(app, resources={r"/*": {"origins": "*"}})
 
 # Global State
@@ -82,7 +84,7 @@ class ProgressTracker:
 
     def update_scan(self, count, categories=None):
         self.check_cancel()
-        self.status = "Scanning Source..."
+        self.status = "Scanning..."
         if categories: self.categories = categories
         self.save()
 
@@ -110,7 +112,7 @@ class ProgressTracker:
             "current": self.current, "skipped": self.skipped, "remaining": max(0, self.total - (self.current + self.skipped)),
             "percent": pct, "status": self.status, "last_file": self.last_file[:40],
             "categories": self.categories, "meta": self.meta, "is_complete": self.is_complete,
-            "cancelled": self.cancelled, "result_url": self.result_url, "temp_files": self.temp_files
+            "cancelled": self.cancelled, "result_url": self.result_url
         }
 
 # --- HELPERS ---
@@ -166,90 +168,52 @@ def upload_file(service, path, name, parent_id=None):
     media = MediaFileUpload(path, mimetype='video/mp4', resumable=True)
     return service.files().create(body=file_metadata, media_body=media, fields='id').execute()
 
-# --- WATERMARK LOGIC (RESTORED FROM YOUR SCRIPT) ---
+# --- WATERMARK LOGIC ---
 def add_scrolling_text_logic(video_path, texts, output_path):
-    # 1. Download Font if missing
     font_path = os.path.join(TEMP_DIR, "LiberationSans-Bold.ttf")
-    if not os.path.exists(font_path):
-        subprocess.run(["wget", "-O", font_path, FONT_URL])
-
-    video = VideoFileClip(video_path)
+    if not os.path.exists(font_path): subprocess.run(["wget", "-O", font_path, FONT_URL])
     
-    # Parameters from your script
-    font_size = 40
-    text_padding = 10
-    scroll_speed = 40
-    initial_delay = 5 
-    cycle_gap = 30
-    bottom_margin = 32
-
-    try: font = ImageFont.truetype(font_path, font_size)
+    video = VideoFileClip(video_path)
+    try: font = ImageFont.truetype(font_path, 40)
     except: font = ImageFont.load_default()
-
-    # Metrics
+    
     text_metrics = []
     temp_draw = ImageDraw.Draw(Image.new('RGB', (1, 1)))
     for text in texts:
         bbox = temp_draw.textbbox((0, 0), text, font=font)
-        text_metrics.append({
-            'width': bbox[2] - bbox[0], 'height': bbox[3] - bbox[1],
-            'text': text, 'bbox': bbox
-        })
+        text_metrics.append({'width': bbox[2]-bbox[0], 'height': bbox[3]-bbox[1], 'text': text, 'bbox': bbox})
 
     def frame_filter(get_frame, t):
         frame = get_frame(t)
+        if t < 5: return frame
         pil_img = Image.fromarray(frame)
         draw = ImageDraw.Draw(pil_img, 'RGBA')
-
-        if t < initial_delay: return frame
-
-        cycle_time = t - initial_delay
-        total_cycle_duration = (video.w + max(m['width'] for m in text_metrics)) / scroll_speed + cycle_gap
-        cycle_number = int(cycle_time / total_cycle_duration)
-        time_in_cycle = cycle_time % total_cycle_duration
-
-        current_metric = text_metrics[cycle_number % len(text_metrics)]
-        active_duration = (video.w + current_metric['width']) / scroll_speed
-
-        if time_in_cycle <= active_duration:
-            progress = time_in_cycle / active_duration
-            x_pos = int(video.w - progress * (video.w + current_metric['width']))
-            y_pos = video.h - bottom_margin - current_metric['height']
-
-            # Draw Black Background (Alpha 220)
-            draw.rectangle(
-                [(x_pos, y_pos), (x_pos + current_metric['width'] + text_padding*2, y_pos + current_metric['height'] + text_padding*2)],
-                fill=(0, 0, 0, 220)
-            )
-            # Draw Text
-            draw.text(
-                (x_pos + text_padding, y_pos + text_padding - current_metric['bbox'][1]),
-                current_metric['text'], font=font, fill=(255, 255, 255, 255)
-            )
+        
+        cycle_time = t - 5
+        total_cycle = (video.w + max(m['width'] for m in text_metrics)) / 40 + 30
+        curr_metric = text_metrics[int(cycle_time/total_cycle) % len(text_metrics)]
+        active_dur = (video.w + curr_metric['width']) / 40
+        time_in = cycle_time % total_cycle
+        
+        if time_in <= active_dur:
+            progress = time_in / active_dur
+            x = int(video.w - progress * (video.w + curr_metric['width']))
+            y = video.h - 32 - curr_metric['height']
+            draw.rectangle([(x, y), (x+curr_metric['width']+20, y+curr_metric['height']+20)], fill=(0,0,0,220))
+            draw.text((x+10, y+10-curr_metric['bbox'][1]), curr_metric['text'], font=font, fill=(255,255,255,255))
         return np.array(pil_img)
 
-    final_video = video.fl(frame_filter)
-    
-    # Write File
-    final_video.write_videofile(output_path, codec='libx264', audio_codec='aac', preset='ultrafast', threads=4, logger=None)
+    final = video.fl(frame_filter)
+    final.write_videofile(output_path, codec='libx264', audio_codec='aac', preset='ultrafast', threads=4, logger=None)
     video.close()
 
 def add_logo_logic(video_path, logo_path, output_path):
     video = VideoFileClip(video_path)
-    logo_img = Image.open(logo_path).convert('RGBA')
-    logo_np = np.array(logo_img)
-
-    # 7% Height Logic
-    logo_height = int(video.h * 0.07)
-    logo_clip = (ImageClip(logo_np).set_duration(video.duration)
-                 .resize(height=logo_height).set_opacity(1.0).set_pos(('right','bottom')))
-    
-    final = CompositeVideoClip([video, logo_clip])
-    final.write_videofile(output_path, codec='libx264', audio_codec='aac', preset='ultrafast', threads=4, logger=None)
+    logo = ImageClip(np.array(Image.open(logo_path).convert('RGBA'))).set_duration(video.duration).resize(height=int(video.h*0.07)).set_opacity(1.0).set_pos(('right','bottom'))
+    CompositeVideoClip([video, logo]).write_videofile(output_path, codec='libx264', audio_codec='aac', preset='ultrafast', threads=4, logger=None)
     video.close()
 
 # --- API ROUTES ---
-
 @app.route('/api/run', methods=['POST'])
 def handle_run():
     data = request.json
@@ -260,61 +224,145 @@ def handle_run():
         try:
             service = get_service(data['creds'])
             
-            if action == "watermark":
-                file_id = extract_id(data['url'])
-                wm_type = data.get('type')
-                wm_text = data.get('text', "")
-                
-                tr = ProgressTracker(task_id, 100, "Watermarking", {"type": wm_type})
-                
-                vid_in = os.path.join(TEMP_DIR, f"in_{task_id}.mp4")
-                vid_out = os.path.join(TEMP_DIR, f"wm_{task_id}.mp4")
-                logo_in = os.path.join(TEMP_DIR, f"logo_{task_id}.png")
-                tr.temp_files = [vid_in, vid_out, logo_in]
-
-                tr.status = "Downloading Video..."
-                tr.save()
-                download_file(service, file_id, vid_in, tr)
-                tr.current = 30; tr.save()
-
-                tr.status = "Rendering..."
-                tr.save()
-                
-                if wm_type == "text":
-                    texts = [t.strip() for t in wm_text.split('|')]
-                    if not texts or texts == [""]: texts = ["@TechZoneX"]
-                    add_scrolling_text_logic(vid_in, texts, vid_out)
-                else:
-                    tr.status = "Downloading Logo..."
-                    download_file(service, WATERMARK_LOGO_ID, logo_in)
-                    add_logo_logic(vid_in, logo_in, vid_out)
-
-                tr.current = 80; tr.save()
-                
-                tr.status = "Uploading..."
-                tr.save()
-                upload_file(service, vid_out, f"Watermarked_{wm_type}.mp4")
-                tr.current = 100
-                
-                tr.complete(status="Done", result_url=f"{SERVER_DOMAIN}/api/download/{task_id}")
-
-            elif action == "copy":
-                sid = extract_id(data['src'])
-                did = extract_id(data['dst']) or 'root'
+            # --- ACTION 1: COPY ---
+            if action == "copy":
+                sid, did = extract_id(data['src']), extract_id(data['dst']) or 'root'
                 tr = ProgressTracker(task_id, 0, "Copying", {"src": sid[:8], "dst": did[:8]})
                 all_items, stats = list_recursive(service, sid, tr)
                 tr.total = len(all_items); tr.categories = stats; tr.save()
-                # (Clone logic omitted for brevity, assume same as previous)
+                
+                def clone(s_id, p_id):
+                    tr.check_cancel()
+                    m = service.files().get(fileId=s_id, fields="name").execute()
+                    p_list = [p_id] if p_id != 'root' else []
+                    nid = service.files().create(body={"name":m["name"], "mimeType":"application/vnd.google-apps.folder", "parents":p_list}, fields="id").execute()["id"]
+                    tr.update(m['name'], 'application/vnd.google-apps.folder')
+                    for it in service.files().list(q=f"'{s_id}' in parents and trashed=false").execute().get('files', []):
+                        if it['mimeType'] == 'application/vnd.google-apps.folder': clone(it['id'], nid)
+                        else:
+                            service.files().copy(fileId=it['id'], body={"name":it['name'], "parents":[nid]}).execute()
+                            tr.update(it['name'], it['mimeType'])
+                clone(sid, did)
                 tr.complete()
 
-            # (Add other actions here: trim, merge, etc. using same logic as previous prompts)
+            # --- ACTION 2: RENAME ---
+            elif action == "rename":
+                fid, s, r = extract_id(data['url']), data['search'], data['replace']
+                tr = ProgressTracker(task_id, 0, "Renaming", {"find": s, "with": r})
+                all_items, stats = list_recursive(service, fid, tr)
+                tr.total = len(all_items); tr.categories = stats; tr.save()
+                for it in all_items:
+                    tr.check_cancel()
+                    if s in it['name']:
+                        nn = it['name'].replace(s, r)
+                        service.files().update(fileId=it['id'], body={"name": nn}).execute()
+                        tr.update(nn, it['mimeType'])
+                    else: tr.update(it['name'], it['mimeType'], is_skipped=True)
+                tr.complete()
+
+            # --- ACTION 3: COUNT/INFO ---
+            elif action == "count" or action == "info":
+                fid = extract_id(data['url'])
+                tr = ProgressTracker(task_id, 0, "Diagnostics", {"target": fid[:8]})
+                all_items, stats = list_recursive(service, fid, tr)
+                tr.total = len(all_items); tr.categories = stats; tr.save()
+                tr.complete()
+
+            # --- ACTION 4: AUTOMATED ---
+            elif action == "automated":
+                src = extract_id(data['url'])
+                tr = ProgressTracker(task_id, 100, "Automated WF")
+                tr.update("Cloning Source"); m = service.files().get(fileId=src, fields="name").execute()
+                nid = service.files().create(body={"name": m["name"], "mimeType": "application/vnd.google-apps.folder", "parents": [UNPOSTED_FOLDER_ID]}, fields="id").execute()["id"]
+                tr.update("Merging Source 2"); 
+                for it in service.files().list(q=f"'{SECOND_SOURCE_FOLDER_ID}' in parents and trashed=false").execute().get('files', []):
+                    service.files().copy(fileId=it['id'], body={"name": it['name'], "parents": [nid]}).execute()
+                tr.update("Branding")
+                items, _ = list_recursive(service, nid)
+                for it in items:
+                    tr.check_cancel()
+                    if it['name'].lower().endswith('.mp4'):
+                        service.files().update(fileId=it['id'], body={"name": it['name'] + " Telegram@TechZoneX.mp4"}).execute()
+                tr.complete()
+
+            # --- ACTION 6: SMART REPLACE ---
+            elif action == "smart_replace":
+                t, s, r = extract_id(data['target']), extract_id(data['sample']), extract_id(data['replace'])
+                meta = service.files().get(fileId=s, fields='size,mimeType').execute()
+                tr = ProgressTracker(task_id, 0, "Smart Replace", {"match": meta.get('size')})
+                all_items, stats = list_recursive(service, t, tr)
+                matches = [f for f in all_items if f.get('size') == meta.get('size')]
+                tr.total = len(matches); tr.save()
+                for it in matches:
+                    tr.check_cancel()
+                    p = it['parents'][0] if 'parents' in it else None
+                    service.files().delete(fileId=it['id']).execute()
+                    service.files().copy(fileId=r, body={"name": it['name'], "parents":[p] if p else []}).execute()
+                    tr.update(it['name'], it['mimeType'])
+                tr.complete()
+
+            # --- ACTION 7: DISTRIBUTE ---
+            elif action == "distribute":
+                t, s = extract_id(data['target']), extract_id(data['source'])
+                meta = service.files().get(fileId=s, fields='name,size').execute()
+                tr = ProgressTracker(task_id, 0, "Distributing", {"file": meta['name']})
+                all_items, stats = list_recursive(service, t, tr)
+                folders = [f for f in all_items if f['mimeType'] == 'application/vnd.google-apps.folder']
+                folders.insert(0, {'id': t})
+                tr.total = len(folders); tr.save()
+                for fid in folders:
+                    tr.check_cancel()
+                    if not service.files().list(q=f"'{fid['id']}' in parents and size='{meta['size']}'").execute().get('files', []):
+                        service.files().copy(fileId=s, body={"name": meta['name'], "parents": [fid['id']]}).execute()
+                        tr.update(f"Folder-{fid['id'][:5]}", "Folders")
+                    else: tr.update("", "", True)
+                tr.complete()
+
+            # --- ACTION 8: TRIM ---
+            elif action == "trim":
+                fid, st, et = extract_id(data['url']), data.get('start'), data.get('end')
+                tr = ProgressTracker(task_id, 4, "Trimming", {"id": fid[:8]})
+                io_in, io_out = os.path.join(TEMP_DIR, f"in_{task_id}.mp4"), os.path.join(TEMP_DIR, f"out_{task_id}.mp4")
+                tr.temp_files = [io_in, io_out]; tr.status="Downloading"; tr.save()
+                download_file(service, fid, io_in, tr); tr.current=1; tr.status="Processing"; tr.save()
+                subprocess.run(f"ffmpeg -i {io_in} -ss {st} -to {et} -c copy {io_out} -y", shell=True)
+                tr.current=2; tr.status="Uploading"; tr.save()
+                upload_file(service, io_out, "Trimmed.mp4"); tr.current=4
+                tr.complete(status="Done", result_url=f"{SERVER_DOMAIN}/api/download/{task_id}")
+
+            # --- ACTION 9: MERGE ---
+            elif action == "merge":
+                id1, id2 = extract_id(data['src1']), extract_id(data['src2'])
+                tr = ProgressTracker(task_id, 5, "Merging")
+                f1, f2, fout, flist = [os.path.join(TEMP_DIR, f"{x}_{task_id}.mp4") for x in ['m1','m2','mout','list']]
+                tr.temp_files = [f1, f2, fout, flist]
+                download_file(service, id1, f1, tr); tr.current=1; tr.save()
+                download_file(service, id2, f2, tr); tr.current=2; tr.save()
+                with open(flist, 'w') as f: f.write(f"file '{f1}'\nfile '{f2}'")
+                subprocess.run(f"ffmpeg -f concat -safe 0 -i {flist} -c copy {fout} -y", shell=True)
+                tr.current=3; tr.save(); upload_file(service, fout, "Merged.mp4")
+                tr.current=5; tr.complete(status="Done", result_url=f"{SERVER_DOMAIN}/api/download/{task_id}")
+
+            # --- ACTION 10: WATERMARK ---
+            elif action == "watermark":
+                fid, wtype, wtext = extract_id(data['url']), data.get('type'), data.get('text', "")
+                tr = ProgressTracker(task_id, 100, "Watermarking", {"type": wtype})
+                vin, vout, lin = os.path.join(TEMP_DIR, f"in_{task_id}.mp4"), os.path.join(TEMP_DIR, f"wm_{task_id}.mp4"), os.path.join(TEMP_DIR, f"lg_{task_id}.png")
+                tr.temp_files = [vin, vout, lin]
+                tr.status="Downloading Video"; tr.save(); download_file(service, fid, vin, tr); tr.current=30
+                tr.status="Rendering"; tr.save()
+                if wtype == "text":
+                    add_scrolling_text_logic(vin, [t.strip() for t in wtext.split('|')] or ["@TechZoneX"], vout)
+                else:
+                    download_file(service, WATERMARK_LOGO_ID, lin)
+                    add_logo_logic(vin, lin, vout)
+                tr.current=80; tr.status="Uploading"; tr.save()
+                upload_file(service, vout, f"Watermarked_{wtype}.mp4"); tr.current=100
+                tr.complete(status="Done", result_url=f"{SERVER_DOMAIN}/api/download/{task_id}")
 
         except Exception as e:
-            if "Cancelled" in str(e) or TASK_FLAGS.get(task_id):
-                TASKS[task_id]['status'] = "Cancelled"
-                TASKS[task_id]['cancelled'] = True
-            else:
-                TASKS[task_id]['status'] = f"Failed: {str(e)}"
+            if "Cancelled" in str(e) or TASK_FLAGS.get(task_id): TASKS[task_id]['status'] = "Cancelled"; TASKS[task_id]['cancelled'] = True
+            else: TASKS[task_id]['status'] = f"Failed: {str(e)}"
             TASKS[task_id]['is_complete'] = True
 
     threading.Thread(target=worker).start()
@@ -324,15 +372,10 @@ def handle_run():
 def get_video_duration():
     try:
         data = request.json
-        service = get_service(data['creds'])
-        fid = extract_id(data['url'])
-        meta = service.files().get(fileId=fid, fields='videoMediaMetadata').execute()
-        duration_ms = meta.get('videoMediaMetadata', {}).get('durationMillis')
-        if not duration_ms: return jsonify({"error": "No duration"}), 400
-        seconds = int(duration_ms) // 1000
+        meta = get_service(data['creds']).files().get(fileId=extract_id(data['url']), fields='videoMediaMetadata').execute()
+        seconds = int(meta.get('videoMediaMetadata', {}).get('durationMillis', 0)) // 1000
         fmt = str(datetime.timedelta(seconds=seconds))
-        if len(fmt) == 7: fmt = "0" + fmt 
-        return jsonify({"duration": fmt})
+        return jsonify({"duration": "0"+fmt if len(fmt)==7 else fmt})
     except Exception as e: return jsonify({"error": str(e)}), 500
 
 @app.route('/')
@@ -353,7 +396,7 @@ def d(tid):
 def dl(tid):
     if tid not in TASKS: return "404", 404
     for f in TASKS[tid].get('temp_files', []):
-        if os.path.exists(f) and ("wm_" in f or "trim" in f or "merged" in f):
+        if os.path.exists(f) and ("wm_" in f or "trim" in f or "mout" in f or "out" in f):
             return send_file(f, as_attachment=True, download_name="output.mp4")
     return "404", 404
 @app.route('/api/status/<tid>')
@@ -366,7 +409,7 @@ def l():
 def cb():
     f = Flow.from_client_config(RAW_CREDENTIALS, scopes=SCOPES, state=session.get('state')); f.redirect_uri = f"{SERVER_DOMAIN}/callback"
     f.fetch_token(authorization_response=request.url)
-    return redirect(f"{FRONTEND_URL}#auth_data={json.dumps(f.credentials.to_json())}") # Encode creds simpler
+    return redirect(f"{FRONTEND_URL}#auth_data={json.dumps(f.credentials.to_json())}")
 @app.route('/drive/index.html')
 def i(): return send_from_directory('drive', 'index.html')
 
