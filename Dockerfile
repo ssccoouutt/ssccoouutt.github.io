@@ -40,10 +40,14 @@ RUN pip install --no-cache-dir --upgrade pip && \
 RUN mkdir -p /tmp drive /app/cookies
 
 # 3. Download YouTube cookies from Google Drive
-# Note: This requires the file to be publicly accessible or using service account
-# For now, create an empty cookies file, you'll need to upload your cookies.txt manually
-RUN touch /app/cookies/cookies.txt && \
-    echo "# YouTube cookies will be loaded here" > /app/cookies/cookies.txt
+RUN wget --no-check-certificate "https://drive.google.com/uc?export=download&id=13iX8xpx47W3PAedGyhGpF5CxZRFz4uaF" -O /app/cookies/cookies.txt && \
+    # Verify cookies file exists and has content
+    if [ -s /app/cookies/cookies.txt ]; then \
+        echo "Cookies file downloaded successfully"; \
+    else \
+        echo "WARNING: Cookies file is empty or failed to download" && \
+        echo "# Empty cookies file" > /app/cookies/cookies.txt; \
+    fi
 
 # ==========================================
 # 4. BACKEND CODE (app.py) - API ONLY
@@ -395,28 +399,66 @@ def core_trim(vin, vout, st, et):
 def download_youtube_video(url, quality='best', download_dir=TEMP_DIR):
     """Download YouTube video using yt-dlp with cookies"""
     try:
+        # Map quality strings to yt-dlp format
+        format_map = {
+            'best': 'best',
+            '144': 'worst',
+            '240': 'worstvideo[height>=240][height<=240]',
+            '360': 'worstvideo[height>=360][height<=360]',
+            '480': 'worstvideo[height>=480][height<=480]',
+            '720': 'bestvideo[height<=720]+bestaudio',
+            '1080': 'bestvideo[height<=1080]+bestaudio',
+            'audio': 'bestaudio'
+        }
+        
+        format_str = format_map.get(quality, 'best')
+        
         ydl_opts = {
-            'format': f'bestvideo[height<={quality if quality!="best" else 1080}]+bestaudio/best' if quality != 'best' else 'best',
+            'format': format_str,
             'outtmpl': os.path.join(download_dir, '%(title)s.%(ext)s'),
             'quiet': True,
             'no_warnings': True,
             'extract_flat': False,
             'merge_output_format': 'mp4',
-            'postprocessors': [{
-                'key': 'FFmpegVideoConvertor',
-                'preferedformat': 'mp4',
-            }],
-            'cookiefile': YOUTUBE_COOKIES_FILE if os.path.exists(YOUTUBE_COOKIES_FILE) and os.path.getsize(YOUTUBE_COOKIES_FILE) > 100 else None,
+            'postprocessors': [],
         }
         
-        logger.info(f"Downloading YouTube video with cookies: {os.path.exists(YOUTUBE_COOKIES_FILE)}")
+        # Add video postprocessor for non-audio formats
+        if quality != 'audio':
+            ydl_opts['postprocessors'].append({
+                'key': 'FFmpegVideoConvertor',
+                'preferedformat': 'mp4',
+            })
+        else:
+            # For audio only, convert to mp3
+            ydl_opts['postprocessors'].append({
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'mp3',
+                'preferredquality': '192',
+            })
+            ydl_opts['outtmpl'] = os.path.join(download_dir, '%(title)s.%(ext)s')
+        
+        # Add cookies if available
+        if os.path.exists(YOUTUBE_COOKIES_FILE) and os.path.getsize(YOUTUBE_COOKIES_FILE) > 100:
+            ydl_opts['cookiefile'] = YOUTUBE_COOKIES_FILE
+            logger.info(f"Using cookies file: {os.path.getsize(YOUTUBE_COOKIES_FILE)} bytes")
+        else:
+            logger.warning("No valid cookies file found, downloading without cookies")
+        
+        logger.info(f"Downloading YouTube video with quality: {quality}, format: {format_str}")
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
             downloaded_file = ydl.prepare_filename(info)
             
-            # Ensure mp4 extension
-            if not downloaded_file.endswith('.mp4'):
+            # For audio, we need to rename from .webm to .mp3 or similar
+            if quality == 'audio' and downloaded_file.endswith('.webm'):
+                mp3_file = downloaded_file.rsplit('.', 1)[0] + '.mp3'
+                if os.path.exists(downloaded_file):
+                    os.rename(downloaded_file, mp3_file)
+                    downloaded_file = mp3_file
+            elif quality != 'audio' and not downloaded_file.endswith('.mp4'):
+                # Ensure mp4 extension for videos
                 mp4_file = downloaded_file.rsplit('.', 1)[0] + '.mp4'
                 if os.path.exists(downloaded_file):
                     os.rename(downloaded_file, mp4_file)
@@ -427,7 +469,7 @@ def download_youtube_video(url, quality='best', download_dir=TEMP_DIR):
                 'file_path': downloaded_file,
                 'title': info.get('title', 'Unknown'),
                 'duration': info.get('duration', 0),
-                'quality': info.get('height', 'Unknown'),
+                'quality': info.get('height', 'Audio') if quality != 'audio' else 'Audio',
                 'thumbnail': info.get('thumbnail', '')
             }
     except Exception as e:
@@ -512,6 +554,15 @@ def run():
                 
                 if not result['success']:
                     raise Exception(f"YouTube download failed: {result.get('error', 'Unknown error')}")
+                
+                # For audio format, skip video processing
+                if quality == 'audio':
+                    tr.update("Uploading audio file...", 80)
+                    parent = extract_id(d.get('destination'))
+                    upload_name = f"YouTube_{result['title'][:50]}.mp3"
+                    up = upload_file(s, result['file_path'], upload_name, parent)
+                    tr.complete(f"{SERVER_DOMAIN}/api/dl/{os.path.basename(result['file_path'])}", up.get('webViewLink'))
+                    return
                 
                 # Process if requested
                 input_file = result['file_path']
