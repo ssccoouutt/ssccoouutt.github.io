@@ -1,8 +1,7 @@
-
 # ==========================================
 # KOYEB SUPER SUITE (Bulk + Single Support)
 # ==========================================
-FROM python:3.9-slim
+FROM python:3.10-slim  # Changed from 3.9 to 3.10 for better compatibility
 
 # 1. Install System Tools
 RUN apt-get update && \
@@ -38,10 +37,11 @@ RUN pip install --no-cache-dir --upgrade pip && \
 RUN mkdir -p /tmp drive
 
 # ==========================================
-# 3. BACKEND CODE (app.py)
+# 3. BACKEND CODE (app.py) - FIXED VERSION
 # ==========================================
 RUN cat << 'EOF' > app.py
 import os, json, uuid, time, io, sys, logging, traceback, threading, shutil
+import subprocess  # ADDED THIS IMPORT
 import numpy as np
 from flask import Flask, request, jsonify, redirect, session, send_file
 from flask_cors import CORS
@@ -52,6 +52,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
 from moviepy.editor import VideoFileClip, ImageClip, CompositeVideoClip, concatenate_videoclips
 from PIL import Image, ImageDraw, ImageFont
+import datetime  # ADDED THIS IMPORT for get_duration endpoint
 
 # --- CONFIG ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s', handlers=[logging.StreamHandler(sys.stdout)])
