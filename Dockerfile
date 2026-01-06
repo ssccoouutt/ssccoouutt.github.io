@@ -1,13 +1,12 @@
 # ==========================================
 # KOYEB SUPER SUITE (Bulk + Single Support)
 # ==========================================
-FROM python:3.10-slim  # Changed from 3.9 to 3.10 for better compatibility
+FROM python:3.10-slim
 
 # 1. Install System Tools
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     ffmpeg imagemagick wget curl git build-essential libmagic1 file procps fonts-liberation && \
-    # Fix ImageMagick policy
     if [ -f /etc/ImageMagick-6/policy.xml ]; then \
         sed -i 's/none/read,write/g' /etc/ImageMagick-6/policy.xml; \
     fi && \
@@ -41,7 +40,7 @@ RUN mkdir -p /tmp drive
 # ==========================================
 RUN cat << 'EOF' > app.py
 import os, json, uuid, time, io, sys, logging, traceback, threading, shutil
-import subprocess  # ADDED THIS IMPORT
+import subprocess
 import numpy as np
 from flask import Flask, request, jsonify, redirect, session, send_file
 from flask_cors import CORS
@@ -52,14 +51,14 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
 from moviepy.editor import VideoFileClip, ImageClip, CompositeVideoClip, concatenate_videoclips
 from PIL import Image, ImageDraw, ImageFont
-import datetime  # ADDED THIS IMPORT for get_duration endpoint
+import datetime
 
 # --- CONFIG ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s', handlers=[logging.StreamHandler(sys.stdout)])
 logger = logging.getLogger(__name__)
 
 # UPDATE URLS
-FRONTEND_URL = "https://techzonex.store" 
+FRONTEND_URL = "https://techzonex.store"
 SERVER_DOMAIN = "https://simple-liana-techzone3201-048a28fa.koyeb.app"
 
 TEMP_DIR = "/tmp"
@@ -82,7 +81,7 @@ RAW_CREDENTIALS = {
     }
 }
 
-os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1' 
+os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 SCOPES = ["https://www.googleapis.com/auth/drive"]
 
 app = Flask(__name__)
@@ -102,7 +101,7 @@ class ProgressTracker:
         self.save()
     def update(self, status, pct=None):
         if TASK_FLAGS.get(self.task_id): raise Exception("Cancelled")
-        self.status = status; 
+        self.status = status;
         if pct is not None: self.percent = pct
         self.save()
     def scan_update(self, count, cats=None):
@@ -140,11 +139,11 @@ def list_recursive(service, folder_id, tracker=None):
                 counts[cat] += 1
                 if f['mimeType'] == 'application/vnd.google-apps.folder':
                     files.append(f); sub_files, sub_counts = list_recursive(service, f['id'], tracker)
-                    files.extend(sub_files); 
+                    files.extend(sub_files);
                     for k, v in sub_counts.items(): counts[k] += v
                 else: files.append(f)
             if tracker and len(files) % 10 == 0: tracker.scan_update(len(files), counts)
-            page = res.get('nextPageToken'); 
+            page = res.get('nextPageToken');
             if not page: break
         except: break
     return files, counts
@@ -158,7 +157,7 @@ def download_file(service, fid, path):
         while not done: _, done = d.next_chunk()
 
 def upload_file(service, path, name, parent=None):
-    meta = {'name': name}; 
+    meta = {'name': name};
     if parent: meta['parents'] = [parent]
     media = MediaFileUpload(path, mimetype='video/mp4', resumable=True)
     f = service.files().create(body=meta, media_body=media, fields='id, webViewLink').execute()
@@ -199,7 +198,7 @@ def core_watermark(vin, vout, wtype, text, logo_path):
             return np.array(img)
         final = video.fl(fl)
     final.write_videofile(vout, codec='libx264', audio_codec='aac', preset='ultrafast', threads=4, logger=None)
-    video.close(); 
+    video.close();
     if wtype=="image": final.close()
 
 def core_merge(v1_path, v2_path, out_path):
@@ -210,12 +209,10 @@ def core_merge(v1_path, v2_path, out_path):
     clip1.close(); clip2.close(); final.close()
 
 def core_trim(vin, vout, st, et):
-    # FFmpeg is faster/stable for trim
     subprocess.run(f"ffmpeg -i {vin} -ss {st} -to {et} -c copy {vout} -y", shell=True, check=True)
 
 # --- WORKER LOGIC ---
 def process_item(item, action, data, service, tr, temp_files):
-    # Unique temp paths for this file
     uid = str(uuid.uuid4())[:4]
     vin = f"{TEMP_DIR}/i_{uid}.mp4"; vout = f"{TEMP_DIR}/o_{uid}.mp4"
     
@@ -231,25 +228,19 @@ def process_item(item, action, data, service, tr, temp_files):
         core_trim(vin, vout, data['start'], data['end'])
         
     elif action == "merge":
-        # Check which one is the "main" processing loop to decide Intro or Outro
-        # data['merge_mode'] = 'intro' (src1 is intro, src2 is folder)
-        # data['merge_mode'] = 'outro' (src1 is folder, src2 is outro)
-        
         static_vid = f"{TEMP_DIR}/static_{tr.task_id}.mp4"
         if not os.path.exists(static_vid):
             static_id = extract_id(data['src1'] if data['merge_mode']=='intro' else data['src2'])
             download_file(service, static_id, static_vid)
             
         if data['merge_mode'] == 'intro':
-            core_merge(static_vid, vin, vout) # Static(Intro) + Current
+            core_merge(static_vid, vin, vout)
         else:
-            core_merge(vin, static_vid, vout) # Current + Static(Outro)
+            core_merge(vin, static_vid, vout)
 
-    # Upload
     parent = item['parents'][0] if 'parents' in item else None
     up = upload_file(service, vout, f"Processed_{item['name']}", parent)
     
-    # Cleanup this item immediately
     if os.path.exists(vin): os.remove(vin)
     
     return vout, up.get('webViewLink')
@@ -262,12 +253,9 @@ def run():
         try:
             s = get_service(d['creds'])
             
-            # --- DETECT BULK VS SINGLE ---
-            # Try to determine if the primary input is a folder
             primary_id = extract_id(d.get('url') or d.get('src') or d.get('src2') or d.get('target'))
             is_folder = False
             
-            # For merge specifically, check both inputs
             if action == 'merge':
                 id1, id2 = extract_id(d['src1']), extract_id(d['src2'])
                 meta1 = s.files().get(fileId=id1, fields='mimeType').execute()
@@ -278,16 +266,14 @@ def run():
                 elif 'folder' in meta1['mimeType'] and 'video' in meta2['mimeType']:
                     is_folder = True; target_id = id1; d['merge_mode'] = 'outro'
                 else:
-                    target_id = id1 # Fallback single
+                    target_id = id1
             else:
-                # Normal check
                 try:
                     meta = s.files().get(fileId=primary_id, fields='mimeType').execute()
                     if 'folder' in meta['mimeType']: is_folder = True; target_id = primary_id
                     else: target_id = primary_id
                 except: target_id = primary_id
 
-            # --- BULK EXECUTION ---
             if is_folder and action in ['watermark', 'trim', 'merge']:
                 tr.update("Scanning Folder...", 0)
                 all_files, _ = list_recursive(s, target_id, tr)
@@ -301,24 +287,20 @@ def run():
                 for i, vid in enumerate(videos):
                     tr.update(f"Processing {i+1}/{tr.total}: {vid['name'][:10]}...", int((i/tr.total)*100))
                     f_out, _ = process_item(vid, action, d, s, tr, [])
-                    if os.path.exists(f_out): os.remove(f_out) # Save space
+                    if os.path.exists(f_out): os.remove(f_out)
                     tr.current += 1
                 
                 tr.complete(drive_link=processed_folder_link)
 
-            # --- SINGLE EXECUTION ---
             else:
-                # Legacy Tools
                 if action in ["copy", "rename", "count", "info", "automated", "smart_replace", "distribute"]:
-                    # (Simplified legacy logic for brevity - assuming Copy/Rename logic from prev prompt)
                     if action == "copy":
                         files, _ = list_recursive(s, extract_id(d['src'])); tr.total=len(files)
                         for f in files: tr.current+=1; tr.update(f"Copying {tr.current}"); tr.save()
                     tr.complete()
 
-                # Media Tools (Single)
                 if action in ["watermark", "trim", "merge"]:
-                    if action == "merge": 
+                    if action == "merge":
                         f1, f2, fo = f"{TEMP_DIR}/{tid}_1.mp4", f"{TEMP_DIR}/{tid}_2.mp4", f"{TEMP_DIR}/{tid}_o.mp4"
                         tr.update("DL Video 1", 10); download_file(s, extract_id(d['src1']), f1)
                         tr.update("DL Video 2", 30); download_file(s, extract_id(d['src2']), f2)
@@ -327,7 +309,7 @@ def run():
                         tr.complete(f"{SERVER_DOMAIN}/api/dl/{tid}_o.mp4", up.get('webViewLink'))
                     else:
                         tr.update("Processing Single File...", 10)
-                        single_item = {'id': target_id, 'name': 'video.mp4'} 
+                        single_item = {'id': target_id, 'name': 'video.mp4'}
                         f_out, drv_link = process_item(single_item, action, d, s, tr, [])
                         final_path = f"{TEMP_DIR}/{tid}_o.mp4"
                         if os.path.exists(f_out): shutil.move(f_out, final_path)
@@ -352,7 +334,7 @@ def get_duration():
 def status(tid): return jsonify(TASKS.get(tid, {"status":"Waiting"}))
 
 @app.route('/api/dl/<fname>')
-def dl(fname): 
+def dl(fname):
     return send_file(f"{TEMP_DIR}/{fname}", as_attachment=True)
 
 @app.route('/auth/login')
