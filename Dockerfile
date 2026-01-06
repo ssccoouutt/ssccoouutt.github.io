@@ -1,88 +1,48 @@
 # ==========================================
-# 1. SETUP ENVIRONMENT
+# KOYEB BACKEND (Python Only)
 # ==========================================
 FROM python:3.9-slim
 
-# Install system dependencies
-# Added 'fonts-liberation' to fix the font 404 error
+# 1. Install System Tools (FFmpeg, Fonts, etc.)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     ffmpeg imagemagick wget curl git build-essential libmagic1 file procps fonts-liberation && \
-    # Fix ImageMagick policy for text rendering
     if [ -f /etc/ImageMagick-6/policy.xml ]; then \
         sed -i 's/none/read,write/g' /etc/ImageMagick-6/policy.xml; \
     fi && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Set working directory
 WORKDIR /app
 
-# ==========================================
-# 2. INSTALL PYTHON DEPENDENCIES
-# ==========================================
+# 2. Install Python Deps
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir \
-    flask \
-    flask-cors \
-    requests \
-    google-api-python-client \
-    google-auth-httplib2 \
-    google-auth-oauthlib \
-    gunicorn \
-    werkzeug \
-    "moviepy==1.0.3" \
-    "numpy<2.0.0" \
-    Pillow \
-    imageio-ffmpeg \
-    "decorator>=4.0.2" \
-    proglog \
-    tqdm
+    flask flask-cors requests google-api-python-client google-auth-httplib2 \
+    google-auth-oauthlib gunicorn werkzeug "moviepy==1.0.3" "numpy<2.0.0" \
+    Pillow imageio-ffmpeg "decorator>=4.0.2" proglog tqdm
 
-# Create templates directory
-RUN mkdir -p drive
-
-# ==========================================
-# 3. WRITE THE BACKEND (app.py)
-# ==========================================
+# 3. Create Backend Script (app.py)
 RUN cat << 'EOF' > app.py
-import os
-import json
-import uuid
-import time
-import subprocess
-import io
-import datetime
-import numpy as np
-import threading
-import requests
-import logging
-import traceback
-import sys
-
-from flask import Flask, request, jsonify, redirect, session, send_from_directory, send_file
+import os, json, uuid, time, io, sys, logging, traceback, numpy as np, threading
+from flask import Flask, request, jsonify, redirect, session, send_file
 from flask_cors import CORS
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
-from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
 from moviepy.editor import VideoFileClip, ImageClip, CompositeVideoClip
 from PIL import Image, ImageDraw, ImageFont
 
-# --- LOGGING SETUP ---
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(message)s',
-    handlers=[logging.StreamHandler(sys.stdout)]
-)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s', handlers=[logging.StreamHandler(sys.stdout)])
 logger = logging.getLogger(__name__)
 
-# --- CONFIGURATION ---
+# --- CONFIG ---
+# YOUR FRONTEND URL (GitHub Pages / Custom Domain)
+FRONTEND_URL = "https://techzonex.store"
+# YOUR KOYEB URL (For callbacks)
 SERVER_DOMAIN = "https://simple-liana-techzone3201-048a28fa.koyeb.app"
-FRONTEND_URL = "https://techzonex.store/drive"
-TEMP_DIR = "/tmp"
 
-# SYSTEM FONT PATH (Installed via Dockerfile)
+TEMP_DIR = "/tmp"
 SYSTEM_FONT = "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
 
 RAW_CREDENTIALS = {
@@ -94,7 +54,7 @@ RAW_CREDENTIALS = {
         "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
         "client_secret": "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",
         "redirect_uris": [f"{SERVER_DOMAIN}/callback"],
-        "javascript_origins": [SERVER_DOMAIN, "https://techzonex.store"]
+        "javascript_origins": [FRONTEND_URL, "https://www.techzonex.store", SERVER_DOMAIN]
     }
 }
 
@@ -102,315 +62,98 @@ os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 SCOPES = ["https://www.googleapis.com/auth/drive"]
 
 app = Flask(__name__)
-app.secret_key = "debug_watermark_mode"
+app.secret_key = "backend_only_secret"
+# Allow CORS from your Domain
 CORS(app, resources={r"/*": {"origins": "*"}})
 
 TASKS = {}
 TASK_FLAGS = {}
 
-class ProgressTracker:
-    def __init__(self, task_id):
-        self.task_id = task_id; self.status = "Initializing..."; self.percent = 0
-        self.is_complete = False; self.cancelled = False; self.result_url = None; self.temp_files = []
-        self.save()
-    def update(self, status, percent):
-        if TASK_FLAGS.get(self.task_id): raise Exception("Task Cancelled")
-        self.status = status; self.percent = percent; logger.info(f"Task {self.task_id}: {status} ({percent}%)"); self.save()
-    def complete(self, result_url=None):
-        self.status = "Done"; self.percent = 100; self.is_complete = True; self.result_url = result_url; self.save()
-    def fail(self, error_msg):
-        self.status = f"Failed: {error_msg}"; self.is_complete = True; logger.error(f"Task {self.task_id} Failed: {error_msg}"); self.save()
-    def save(self):
-        TASKS[self.task_id] = {"id": self.task_id, "status": self.status, "percent": self.percent, "is_complete": self.is_complete, "result_url": self.result_url}
+def get_service(creds):
+    c = Credentials.from_authorized_user_info(json.loads(creds), SCOPES)
+    if c and c.expired and c.refresh_token: c.refresh(Request())
+    return build("drive", "v3", credentials=c)
 
-def get_service(creds_json):
-    creds = Credentials.from_authorized_user_info(json.loads(creds_json), SCOPES)
-    if creds and creds.expired and creds.refresh_token: creds.refresh(Request())
-    return build("drive", "v3", credentials=creds)
-
-def extract_id(url):
-    if not url: return None
-    if 'file/d/' in url: return url.split('file/d/')[1].split('/')[0]
-    if 'folders/' in url: return url.split('folders/')[1].split('?')[0]
-    if 'id=' in url: return url.split('id=')[1].split('&')[0]
-    return url
-
-def download_file(service, file_id, path):
-    logger.info(f"Downloading file {file_id} to {path}")
-    request = service.files().get_media(fileId=file_id)
+def download_file(service, fid, path):
+    logger.info(f"DL {fid}...")
+    req = service.files().get_media(fileId=fid)
     with io.FileIO(path, 'wb') as fh:
-        downloader = MediaIoBaseDownload(fh, request)
+        d = MediaIoBaseDownload(fh, req)
         done = False
-        while not done: status, done = downloader.next_chunk()
+        while not done: _, done = d.next_chunk()
 
-def upload_file(service, path, name):
-    logger.info(f"Uploading {path} as {name}")
-    file_metadata = {'name': name}
-    media = MediaFileUpload(path, mimetype='video/mp4', resumable=True)
-    f = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
-    return f
-
-def process_watermark(video_path, output_path, type, text=None, logo_path=None):
-    logger.info(f"Starting MoviePy processing. Type: {type}")
-    video = VideoFileClip(video_path)
-
+def process_watermark(vin, vout, type, text, logo_path):
+    video = VideoFileClip(vin)
     if type == "text":
-        # Use System Font (Robust against 404s)
-        try:
-            if os.path.exists(SYSTEM_FONT):
-                font = ImageFont.truetype(SYSTEM_FONT, 40)
-            else:
-                logger.warning("System font not found, falling back to default.")
-                font = ImageFont.load_default()
-        except Exception:
-            font = ImageFont.load_default()
-
-        texts = [t.strip() for t in text.split('|')]
-        if not texts or texts == [""]: texts = ["@TechZoneX"]
-
-        text_metrics = []
-        temp_draw = ImageDraw.Draw(Image.new('RGB', (1, 1)))
-        for txt in texts:
-            bbox = temp_draw.textbbox((0, 0), txt, font=font)
-            text_metrics.append({'width': bbox[2]-bbox[0], 'height': bbox[3]-bbox[1], 'text': txt, 'bbox': bbox})
-
-        def frame_filter(get_frame, t):
-            frame = get_frame(t)
-            if t < 5: return frame
-            pil_img = Image.fromarray(frame); draw = ImageDraw.Draw(pil_img, 'RGBA')
-            cycle_time = t - 5; total_cycle = (video.w + max(m['width'] for m in text_metrics)) / 40 + 30
-            curr_metric = text_metrics[int(cycle_time/total_cycle) % len(text_metrics)]
-            active_dur = (video.w + curr_metric['width']) / 40; time_in = cycle_time % total_cycle
-            if time_in <= active_dur:
-                progress = time_in / active_dur; x = int(video.w - progress * (video.w + curr_metric['width']))
-                y = video.h - 32 - curr_metric['height']
-                draw.rectangle([(x, y), (x+curr_metric['width']+20, y+curr_metric['height']+20)], fill=(0,0,0,220))
-                draw.text((x+10, y+10-curr_metric['bbox'][1]), curr_metric['text'], font=font, fill=(255,255,255,255))
-            return np.array(pil_img)
-        final_clip = video.fl(frame_filter)
-
+        font = ImageFont.truetype(SYSTEM_FONT, 40) if os.path.exists(SYSTEM_FONT) else ImageFont.load_default()
+        texts = [t.strip() for t in text.split('|')] or ["@TechZoneX"]
+        tm = []
+        d = ImageDraw.Draw(Image.new('RGB',(1,1)))
+        for t in texts:
+            b = d.textbbox((0,0), t, font=font)
+            tm.append({'w': b[2]-b[0], 'h': b[3]-b[1], 't': t, 'b': b})
+        def fl(get_frame, t):
+            if t < 5: return get_frame(t)
+            img = Image.fromarray(get_frame(t)); d = ImageDraw.Draw(img, 'RGBA')
+            ct = t - 5; tc = (video.w + max(m['w'] for m in tm))/40 + 30
+            cm = tm[int(ct/tc)%len(tm)]; ad = (video.w + cm['w'])/40; ti = ct%tc
+            if ti <= ad:
+                p = ti/ad; x = int(video.w - p*(video.w+cm['w'])); y = video.h - 32 - cm['h']
+                d.rectangle([(x,y), (x+cm['w']+20, y+cm['h']+20)], fill=(0,0,0,220))
+                d.text((x+10, y+10-cm['b'][1]), cm['t'], font=font, fill=(255,255,255,255))
+            return np.array(img)
+        final = video.fl(fl)
     else:
-        # Logo Logic
-        logger.info("Processing Logo Overlay...")
-        if not os.path.exists(logo_path): raise Exception("Logo file did not download correctly.")
-        logo_img = Image.open(logo_path).convert('RGBA')
-        logo_np = np.array(logo_img)
-        logo_h = int(video.h * 0.07)
-        logo_clip = ImageClip(logo_np).set_duration(video.duration).resize(height=logo_h).set_opacity(1.0).set_pos(('right','bottom'))
-        final_clip = CompositeVideoClip([video, logo_clip])
-
-    final_clip.write_videofile(output_path, codec='libx264', audio_codec='aac', preset='ultrafast', threads=4, logger=None)
-    video.close()
-    if type == "image": final_clip.close()
-
-@app.route('/api/run', methods=['POST'])
-def handle_run():
-    data = request.json; task_id = str(uuid.uuid4())[:8]
-    def worker():
-        tr = ProgressTracker(task_id)
-        try:
-            logger.info(f"--- STARTING TASK {task_id} ---")
-            service = get_service(data['creds'])
-            file_id = extract_id(data['url'])
-            if not file_id: raise Exception("Invalid Video Link")
-
-            wtype = data.get('type')
-            wtext = data.get('text', "")
-            logo_id = extract_id(data.get('logo_id', "")) # Get logo ID from user
-
-            vin = os.path.join(TEMP_DIR, f"in_{task_id}.mp4")
-            vout = os.path.join(TEMP_DIR, f"wm_{task_id}.mp4")
-            lin = os.path.join(TEMP_DIR, f"logo_{task_id}.png")
-            tr.temp_files = [vin, vout, lin]
-
-            tr.update("Downloading Video...", 10)
-            download_file(service, file_id, vin)
-
-            if wtype == "image":
-                if not logo_id: raise Exception("Logo File ID is required for Image mode")
-                tr.update("Downloading Logo...", 30)
-                download_file(service, logo_id, lin)
-
-            tr.update("Rendering Watermark...", 50)
-            process_watermark(vin, vout, wtype, wtext, lin)
-
-            tr.update("Uploading...", 90)
-            upload_file(service, vout, f"Watermarked_{task_id}.mp4")
-
-            tr.complete(result_url=f"{SERVER_DOMAIN}/api/download/{task_id}")
-            logger.info(f"--- SUCCESS {task_id} ---")
-        except Exception as e:
-            err = str(e); tb = traceback.format_exc(); logger.error(f"FAIL: {err}\n{tb}"); tr.fail(err)
-    threading.Thread(target=worker).start()
-    return jsonify({"task_id": task_id})
+        if not os.path.exists(logo_path): raise Exception("Logo file missing")
+        logo = ImageClip(np.array(Image.open(logo_path).convert('RGBA'))).set_duration(video.duration).resize(height=int(video.h*0.07)).set_opacity(1.0).set_pos(('right','bottom'))
+        final = CompositeVideoClip([video, logo])
+    final.write_videofile(vout, codec='libx264', audio_codec='aac', preset='ultrafast', threads=4, logger=None)
+    video.close(); 
+    if type == "image": final.close()
 
 @app.route('/')
-def h(): return "OK", 200
+def health(): return "Backend Online", 200
+
+@app.route('/api/run', methods=['POST'])
+def run():
+    d = request.json; tid = str(uuid.uuid4())[:8]
+    def w():
+        TASKS[tid] = {"status":"Starting", "pct":0, "done":False}
+        try:
+            s = get_service(d['creds']); fid = d['url'].split('file/d/')[1].split('/')[0]
+            vin = f"{TEMP_DIR}/{tid}_i.mp4"; vout = f"{TEMP_DIR}/{tid}_o.mp4"; lin = f"{TEMP_DIR}/{tid}_l.png"
+            TASKS[tid].update({"status":"Downloading", "pct":10}); download_file(s, fid, vin)
+            if d['type'] == 'image': download_file(s, d['logo_id'], lin)
+            TASKS[tid].update({"status":"Rendering", "pct":50}); process_watermark(vin, vout, d['type'], d['text'], lin)
+            TASKS[tid].update({"status":"Uploading", "pct":90})
+            m = MediaFileUpload(vout, mimetype='video/mp4', resumable=True)
+            s.files().create(body={'name':'Watermarked.mp4'}, media_body=m).execute()
+            TASKS[tid].update({"status":"Done", "pct":100, "done":True, "url":f"{SERVER_DOMAIN}/api/dl/{tid}"})
+        except Exception as e:
+            logger.error(traceback.format_exc()); TASKS[tid].update({"status":f"Error: {str(e)}", "done":True})
+    threading.Thread(target=w).start()
+    return jsonify({"id": tid})
+
 @app.route('/api/status/<tid>')
-def s(tid): return jsonify(TASKS.get(tid, {"status": "Waiting", "is_complete": False}))
-@app.route('/api/dismiss/<tid>', methods=['POST'])
-def d(tid):
-    if tid in TASKS:
-        for f in TASKS[tid].get('temp_files', []): 
-            if os.path.exists(f): os.remove(f)
-        del TASKS[tid]
-    return jsonify({})
-@app.route('/api/download/<tid>', methods=['GET'])
-def dl(tid):
-    if tid not in TASKS: return "404", 404
-    for f in TASKS[tid].get('temp_files', []):
-        if os.path.exists(f): return send_file(f, as_attachment=True, download_name="watermarked.mp4")
-    return "404", 404
+def status(tid): return jsonify(TASKS.get(tid, {"status":"Waiting"}))
+
+@app.route('/api/dl/<tid>')
+def dl(tid): return send_file(f"{TEMP_DIR}/{tid}_o.mp4", as_attachment=True, download_name="watermarked.mp4")
+
 @app.route('/auth/login')
-def l():
+def login():
     f = Flow.from_client_config(RAW_CREDENTIALS, scopes=SCOPES); f.redirect_uri = f"{SERVER_DOMAIN}/callback"
     u, s = f.authorization_url(access_type='offline', prompt='consent'); session['state'] = s; return redirect(u)
+
 @app.route('/callback')
-def cb():
+def callback():
     f = Flow.from_client_config(RAW_CREDENTIALS, scopes=SCOPES, state=session.get('state')); f.redirect_uri = f"{SERVER_DOMAIN}/callback"
     f.fetch_token(authorization_response=request.url)
-    return redirect(f"{FRONTEND_URL}#auth_data={json.dumps(f.credentials.to_json())}")
-@app.route('/drive/index.html')
-def i(): return send_from_directory('drive', 'index.html')
+    # Redirect to GitHub Pages / Custom Domain
+    return redirect(f"{FRONTEND_URL}/#auth_data={json.dumps(f.credentials.to_json())}")
 
 if __name__ == '__main__': app.run(host='0.0.0.0', port=8000)
 EOF
 
-# ==========================================
-# 4. WRITE THE FRONTEND (index.html)
-# ==========================================
-RUN cat << 'EOF' > drive/index.html
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Watermark Tool</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        body { font-family: sans-serif; background: #030712; color: #e2e8f0; }
-        .glass { background: #1e293b; border: 1px solid #334155; border-radius: 1rem; padding: 1.5rem; }
-        input, select { background: #0f172a; border: 1px solid #334155; color: white; width: 100%; padding: 0.75rem; border-radius: 0.5rem; margin-bottom: 1rem; }
-    </style>
-</head>
-<body class="p-6 max-w-lg mx-auto space-y-6">
-
-    <div class="glass flex justify-between items-center">
-        <h1 class="font-bold text-xl">Watermarker</h1>
-        <div id="auth-btn"></div>
-    </div>
-
-    <div class="glass">
-        <label class="text-xs text-gray-400">Video Link</label>
-        <input type="text" id="url" placeholder="Google Drive Link">
-
-        <label class="text-xs text-gray-400">Type</label>
-        <select id="type" onchange="toggleInputs()">
-            <option value="text">Scrolling Text</option>
-            <option value="image">Logo Overlay</option>
-        </select>
-
-        <div id="text-input">
-            <label class="text-xs text-gray-400">Text Content</label>
-            <input type="text" id="text" placeholder="Enter text here">
-        </div>
-
-        <div id="logo-input" class="hidden">
-            <label class="text-xs text-gray-400">Logo File ID (Google Drive)</label>
-            <input type="text" id="logo_id" placeholder="Paste ID of png/jpg in Drive">
-        </div>
-
-        <button onclick="run()" class="w-full py-3 bg-blue-600 hover:bg-blue-700 rounded-lg font-bold">START PROCESS</button>
-    </div>
-
-    <div id="monitor" class="glass hidden">
-        <div class="flex justify-between mb-2">
-            <span id="status" class="font-bold text-yellow-500">Initializing...</span>
-            <span id="pct">0%</span>
-        </div>
-        <div class="w-full bg-black h-2 rounded"><div id="bar" class="bg-blue-500 h-full transition-all" style="width:0%"></div></div>
-        <div id="result-area" class="mt-4 hidden"></div>
-    </div>
-
-    <script>
-        const API = "https://simple-liana-techzone3201-048a28fa.koyeb.app";
-        let tid = null;
-
-        function toggleInputs() {
-            const type = document.getElementById('type').value;
-            if(type === 'image') {
-                document.getElementById('text-input').classList.add('hidden');
-                document.getElementById('logo-input').classList.remove('hidden');
-            } else {
-                document.getElementById('text-input').classList.remove('hidden');
-                document.getElementById('logo-input').classList.add('hidden');
-            }
-        }
-
-        function init() {
-            const h = window.location.hash;
-            if(h.includes('auth_data=')) {
-                localStorage.setItem('creds', JSON.parse(decodeURIComponent(h.split('auth_data=')[1])));
-                window.history.replaceState(null,null,' '); location.reload();
-            }
-            const c = localStorage.getItem('creds');
-            document.getElementById('auth-btn').innerHTML = c ? 
-                `<button onclick="localStorage.removeItem('creds');location.reload()" class="text-red-400 text-sm">Logout</button>` : 
-                `<button onclick="location.href='${API}/auth/login'" class="bg-green-600 px-3 py-1 rounded text-sm">Login</button>`;
-        }
-
-        async function run() {
-            if(!localStorage.getItem('creds')) return alert("Login First");
-            
-            document.getElementById('monitor').classList.remove('hidden');
-            document.getElementById('result-area').innerHTML = "";
-            document.getElementById('status').innerText = "Starting...";
-
-            const body = {
-                creds: localStorage.getItem('creds'),
-                url: document.getElementById('url').value,
-                type: document.getElementById('type').value,
-                text: document.getElementById('text').value,
-                logo_id: document.getElementById('logo_id').value
-            };
-
-            try {
-                const r = await fetch(API+'/api/run', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
-                const d = await r.json();
-                tid = d.task_id;
-                poll();
-            } catch(e) { alert("Error: " + e); }
-        }
-
-        function poll() {
-            const intv = setInterval(async () => {
-                const r = await fetch(API+'/api/status/'+tid);
-                const s = await r.json();
-                
-                document.getElementById('status').innerText = s.status;
-                document.getElementById('pct').innerText = s.percent + "%";
-                document.getElementById('bar').style.width = s.percent + "%";
-
-                if(s.is_complete) {
-                    clearInterval(intv);
-                    if(s.result_url) {
-                        document.getElementById('status').className = "font-bold text-green-500";
-                        document.getElementById('result-area').classList.remove('hidden');
-                        document.getElementById('result-area').innerHTML = `<a href="${s.result_url}" class="block w-full text-center bg-green-600 py-2 rounded font-bold">DOWNLOAD VIDEO</a>`;
-                    } else {
-                        document.getElementById('status').className = "font-bold text-red-500";
-                    }
-                }
-            }, 1000);
-        }
-
-        window.onload = init;
-    </script>
-</body>
-</html>
-EOF
-
-# ==========================================
-# 5. RUN THE SERVER
-# ==========================================
+# 4. Run Gunicorn
 CMD ["gunicorn", "app:app", "--bind", "0.0.0.0:8000", "--timeout", "1200", "--workers", "1", "--threads", "4"]
