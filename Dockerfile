@@ -1,13 +1,13 @@
 # ==========================================
-# KOYEB BACKEND (All Features Restored)
+# KOYEB BACKEND (All Features + Player Support)
 # ==========================================
 FROM python:3.9-slim
 
-# 1. Install System Tools (FFmpeg, Fonts, ImageMagick)
+# 1. Install System Tools
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     ffmpeg imagemagick wget curl git build-essential libmagic1 file procps fonts-liberation && \
-    # Fix ImageMagick security policy to allow text rendering
+    # Fix ImageMagick policy
     if [ -f /etc/ImageMagick-6/policy.xml ]; then \
         sed -i 's/none/read,write/g' /etc/ImageMagick-6/policy.xml; \
     fi && \
@@ -15,10 +15,7 @@ RUN apt-get update && \
 
 WORKDIR /app
 
-# 2. Install Python Dependencies (CRITICAL FIXES APPLIED)
-# - decorator<5.0: Required by MoviePy
-# - Pillow==9.5.0: Required for ANTIALIAS support
-# - numpy<2.0.0: Required for MoviePy compatibility
+# 2. Install Python Dependencies (Fixed for Stability)
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir "decorator<5.0" && \
     pip install --no-cache-dir \
@@ -36,14 +33,14 @@ RUN pip install --no-cache-dir --upgrade pip && \
     "google-auth-httplib2" \
     "google-auth-oauthlib"
 
-# Create storage folders
+# Create folders
 RUN mkdir -p /tmp drive
 
-# 3. Write the "Big" Backend Code (app.py)
+# 3. Write Backend Code (app.py)
 RUN cat << 'EOF' > app.py
 import os, json, uuid, time, io, sys, logging, traceback, threading
 import numpy as np
-from flask import Flask, request, jsonify, redirect, session, send_file
+from flask import Flask, request, jsonify, redirect, session, send_file, Response
 from flask_cors import CORS
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
@@ -53,19 +50,18 @@ from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
 from moviepy.editor import VideoFileClip, ImageClip, CompositeVideoClip
 from PIL import Image, ImageDraw, ImageFont
 
-# --- LOGGING ---
+# --- CONFIG ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s', handlers=[logging.StreamHandler(sys.stdout)])
 logger = logging.getLogger(__name__)
 
-# --- CONFIG ---
-# UPDATE THESE IF NEEDED
+# UPDATE THESE WITH YOUR URLS
 FRONTEND_URL = "https://techzone3201.github.io" 
 SERVER_DOMAIN = "https://simple-liana-techzone3201-048a28fa.koyeb.app"
 
 TEMP_DIR = "/tmp"
 SYSTEM_FONT = "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
 
-# Folder IDs for 'Auto' workflow
+# Folder IDs for 'Auto' feature
 UNPOSTED_FOLDER_ID = "14tf687_8F4o2oYJTqyCZmvJjq45jRliy"
 SECOND_SOURCE_FOLDER_ID = "12V7EnRIYcSgEtt0PR5fhV8cO22nzYuiv"
 
@@ -97,7 +93,7 @@ MIME_MAP = {'application/pdf':'PDF', 'image/':'Images', 'video/':'Videos', 'audi
 class ProgressTracker:
     def __init__(self, task_id, action="Task"):
         self.task_id = task_id; self.action = action; self.status = "Initializing..."
-        self.percent = 0; self.is_complete = False; self.result_url = None
+        self.percent = 0; self.is_complete = False; self.result_url = None; self.drive_link = None
         self.current = 0; self.total = 0; self.categories = {}
         self.save()
     def update(self, status, pct=None):
@@ -107,8 +103,8 @@ class ProgressTracker:
         self.save()
     def scan_update(self, count, cats=None):
         self.update(f"Scanning ({count})..."); self.categories = cats or self.categories; self.save()
-    def complete(self, url=None):
-        self.status = "Done"; self.percent = 100; self.is_complete = True; self.result_url = url; self.save()
+    def complete(self, url=None, drive_link=None):
+        self.status = "Done"; self.percent = 100; self.is_complete = True; self.result_url = url; self.drive_link = drive_link; self.save()
     def fail(self, err):
         self.status = f"Failed: {err}"; self.is_complete = True; logger.error(err); self.save()
     def save(self):
@@ -121,10 +117,12 @@ def get_service(creds):
 
 def extract_id(url):
     if not url: return None
+    url = str(url).strip()
+    # Handle various Drive URL formats
     if 'file/d/' in url: return url.split('file/d/')[1].split('/')[0]
     if 'folders/' in url: return url.split('folders/')[1].split('?')[0]
     if 'id=' in url: return url.split('id=')[1].split('&')[0]
-    return url
+    return url # Assume raw ID
 
 def list_recursive(service, folder_id, tracker=None):
     files = []; counts = {v: 0 for v in MIME_MAP.values()}; counts['Other'] = 0; page = None
@@ -160,16 +158,16 @@ def upload_file(service, path, name, parent=None):
     meta = {'name': name}; 
     if parent: meta['parents'] = [parent]
     media = MediaFileUpload(path, mimetype='video/mp4', resumable=True)
-    return service.files().create(body=meta, media_body=media, fields='id').execute()
+    f = service.files().create(body=meta, media_body=media, fields='id, webViewLink').execute()
+    return f
 
-# --- VIDEO LOGIC (Watermark, Trim, Merge) ---
+# --- VIDEO PROCESSING ---
 def process_watermark(vin, vout, wtype, text, logo_path):
     video = VideoFileClip(vin)
     if wtype == "image":
         if not os.path.exists(logo_path): raise Exception("Logo missing")
         img = Image.open(logo_path).convert('RGBA')
         img_np = np.array(img)
-        # Fix shape
         if len(img_np.shape) == 2: img_np = np.stack([img_np]*3, axis=-1)
         elif img_np.shape[2] == 4: img_np = img_np[..., :3]
         
@@ -182,7 +180,6 @@ def process_watermark(vin, vout, wtype, text, logo_path):
         bbox = d.textbbox((0,0), text, font=font)
         tw, th = bbox[2]-bbox[0], bbox[3]-bbox[1]
         
-        # Adaptive speed
         spd = 80 if video.duration<=10 else (60 if video.duration<=30 else 40)
         delay = 0 if video.duration<=10 else (1 if video.duration<=30 else 30)
         gap = 2 if video.duration<=10 else (5 if video.duration<=30 else 30)
@@ -295,8 +292,8 @@ def run():
                 io_in, io_out = f"{TEMP_DIR}/{tid}_i.mp4", f"{TEMP_DIR}/{tid}_o.mp4"
                 tr.update("Downloading", 20); download_file(s, fid, io_in)
                 tr.update("Trimming", 50); subprocess.run(f"ffmpeg -i {io_in} -ss {st} -to {et} -c copy {io_out} -y", shell=True)
-                tr.update("Uploading", 80); upload_file(s, io_out, "Trimmed.mp4")
-                tr.complete(f"{SERVER_DOMAIN}/api/dl/{tid}")
+                tr.update("Uploading", 80); up = upload_file(s, io_out, "Trimmed.mp4")
+                tr.complete(f"{SERVER_DOMAIN}/api/dl/{tid}", up.get('webViewLink'))
 
             # 9. MERGE
             elif action == "merge":
@@ -306,8 +303,8 @@ def run():
                 tr.update("DL Video 2", 30); download_file(s, id2, f2)
                 with open(fl,'w') as f: f.write(f"file '{f1}'\nfile '{f2}'")
                 tr.update("Merging", 60); subprocess.run(f"ffmpeg -f concat -safe 0 -i {fl} -c copy {fo} -y", shell=True)
-                tr.update("Uploading", 90); upload_file(s, fo, "Merged.mp4")
-                tr.complete(f"{SERVER_DOMAIN}/api/dl/{tid}")
+                tr.update("Uploading", 90); up = upload_file(s, fo, "Merged.mp4")
+                tr.complete(f"{SERVER_DOMAIN}/api/dl/{tid}", up.get('webViewLink'))
 
             # 10. WATERMARK
             elif action == "watermark":
@@ -315,11 +312,11 @@ def run():
                 vin, vout, lin = f"{TEMP_DIR}/{tid}_i.mp4", f"{TEMP_DIR}/{tid}_o.mp4", f"{TEMP_DIR}/{tid}_l.png"
                 tr.update("DL Video", 10); download_file(s, fid, vin)
                 if d['type'] == 'image':
-                    lid = extract_id(d.get('logo_id')) # Extract ID from link
+                    lid = extract_id(d.get('logo_id'))
                     tr.update("DL Logo", 30); download_file(s, lid, lin)
                 tr.update("Rendering", 50); process_watermark(vin, vout, d['type'], d['text'], lin)
-                tr.update("Uploading", 90); upload_file(s, vout, f"Watermarked_{tid}.mp4")
-                tr.complete(f"{SERVER_DOMAIN}/api/dl/{tid}")
+                tr.update("Uploading", 90); up = upload_file(s, vout, f"Watermarked_{tid}.mp4")
+                tr.complete(f"{SERVER_DOMAIN}/api/dl/{tid}", up.get('webViewLink'))
 
         except Exception as e:
             tr.fail(str(e)); logger.error(traceback.format_exc())
@@ -341,7 +338,12 @@ def get_duration():
 def status(tid): return jsonify(TASKS.get(tid, {"status":"Waiting"}))
 
 @app.route('/api/dl/<tid>')
-def dl(tid): return send_file(f"{TEMP_DIR}/o_{tid}.mp4", as_attachment=True, download_name="output.mp4")
+def dl(tid): 
+    # Look for any output file associated with this ID
+    for f in os.listdir(TEMP_DIR):
+        if tid in f and (f.startswith("o_") or f.startswith("wm_") or "Trimmed" in f):
+            return send_file(os.path.join(TEMP_DIR, f), as_attachment=True, download_name="processed_video.mp4")
+    return "File Not Found", 404
 
 @app.route('/auth/login')
 def login():
@@ -355,7 +357,7 @@ def callback():
     return redirect(f"{FRONTEND_URL}/#auth_data={json.dumps(f.credentials.to_json())}")
 
 @app.route('/')
-def index(): return "Server Active", 200
+def index(): return "Koyeb Backend Active", 200
 
 if __name__ == '__main__': app.run(host='0.0.0.0', port=8000)
 EOF
