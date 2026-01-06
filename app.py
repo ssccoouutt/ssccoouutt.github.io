@@ -1,13 +1,13 @@
 # ==========================================
-# KOYEB BACKEND (Python Server Only)
+# KOYEB BACKEND (Python Server)
 # ==========================================
 FROM python:3.9-slim
 
-# 1. Install System Tools (FFmpeg, Fonts, ImageMagick)
+# 1. Install System Dependencies (FFmpeg, Fonts, ImageMagick)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     ffmpeg imagemagick wget curl git build-essential libmagic1 file procps fonts-liberation && \
-    # Fix ImageMagick security policy to allow text
+    # Fix ImageMagick policy to allow text rendering
     if [ -f /etc/ImageMagick-6/policy.xml ]; then \
         sed -i 's/none/read,write/g' /etc/ImageMagick-6/policy.xml; \
     fi && \
@@ -15,56 +15,50 @@ RUN apt-get update && \
 
 WORKDIR /app
 
-# 2. Install Python Dependencies (FIXED VERSIONS)
-# decorator<5.0 is REQUIRED for moviepy 1.0.3
+# 2. Install Python Dependencies
+# We install decorator<5.0 FIRST to prevent conflict
 RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir "decorator<5.0" && \
     pip install --no-cache-dir \
-    flask \
-    flask-cors \
-    requests \
-    google-api-python-client \
-    google-auth-httplib2 \
-    google-auth-oauthlib \
-    gunicorn \
-    werkzeug \
     "moviepy==1.0.3" \
-    "numpy<2.0.0" \
-    "Pillow==10.0.0" \
-    "imageio-ffmpeg==0.4.9" \
-    "decorator<5.0" \
-    proglog \
-    tqdm
+    "numpy==1.24.3" \
+    "Pillow" \
+    "imageio-ffmpeg" \
+    "proglog" \
+    "tqdm" \
+    "flask" \
+    "flask-cors" \
+    "requests" \
+    "gunicorn" \
+    "google-api-python-client" \
+    "google-auth-httplib2" \
+    "google-auth-oauthlib"
 
-# Create temp folders
+# Create folders
 RUN mkdir -p /tmp drive
 
-# 3. Write the Backend Code (app.py)
+# 3. Create Backend Code (app.py)
 RUN cat << 'EOF' > app.py
 import os, json, uuid, time, io, sys, logging, traceback, threading
 import numpy as np
 from flask import Flask, request, jsonify, redirect, session, send_file
 from flask_cors import CORS
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import Flow
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
 from moviepy.editor import VideoFileClip, ImageClip, CompositeVideoClip
 from PIL import Image, ImageDraw, ImageFont
 
-# --- LOGGING ---
+# --- CONFIG ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s', handlers=[logging.StreamHandler(sys.stdout)])
 logger = logging.getLogger(__name__)
 
-# --- CONFIG ---
-# UPDATE THIS: The URL where your GitHub Pages is hosted
-FRONTEND_URL = "https://techzone3201.github.io" 
-# UPDATE THIS: Your Koyeb URL
-SERVER_DOMAIN = "https://simple-liana-techzone3201-048a28fa.koyeb.app"
-
+SERVER_DOMAIN = "https://simple-liana-techzone3201-048a28fa.koyeb.app" # YOUR KOYEB URL
 TEMP_DIR = "/tmp"
 SYSTEM_FONT = "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
 
+# CREDENTIALS SETUP
 RAW_CREDENTIALS = {
     "web": {
         "client_id": "704057951722-i19ln87gtlofufuet9okb9mvdj9t9hel.apps.googleusercontent.com",
@@ -74,7 +68,8 @@ RAW_CREDENTIALS = {
         "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
         "client_secret": "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",
         "redirect_uris": [f"{SERVER_DOMAIN}/callback"],
-        "javascript_origins": [SERVER_DOMAIN, FRONTEND_URL, "https://techzonex.store"]
+        # ALLOW BOTH GITHUB AND CUSTOM DOMAIN ORIGINS
+        "javascript_origins": [SERVER_DOMAIN, "https://techzonex.store", "https://ssccoouutt.github.io"]
     }
 }
 
@@ -102,14 +97,13 @@ def download_file(service, fid, path):
         done = False
         while not done: _, done = d.next_chunk()
 
-# --- WATERMARK PROCESSING ---
+# --- PROCESSING LOGIC (MATCHING COLAB) ---
 def process_video_logic(video_path, output_path, wtype, text, logo_path):
-    logger.info(f"Processing Video: {wtype}")
+    logger.info(f"Processing Video Type: {wtype}")
     video = VideoFileClip(video_path)
     
     if wtype == "image":
-        # Static Logo Logic
-        if not os.path.exists(logo_path): raise Exception("Logo file missing")
+        if not os.path.exists(logo_path): raise Exception("Logo not found")
         watermark_img = Image.open(logo_path)
         if watermark_img.mode != 'RGBA': watermark_img = watermark_img.convert('RGBA')
         watermark_np = np.array(watermark_img)
@@ -126,7 +120,7 @@ def process_video_logic(video_path, output_path, wtype, text, logo_path):
         final = CompositeVideoClip([video, logo_clip])
     
     else:
-        # Scrolling Text Logic
+        # Scrolling Text
         try: font = ImageFont.truetype(SYSTEM_FONT, 50)
         except: font = ImageFont.load_default()
         
@@ -135,7 +129,7 @@ def process_video_logic(video_path, output_path, wtype, text, logo_path):
         text_width = bbox[2] - bbox[0]
         text_height = bbox[3] - bbox[1]
         
-        # Adaptive Speed
+        # Adaptive Speed (From Colab)
         if video.duration <= 10: scroll_speed = 80; initial_delay = 0; cycle_gap = 2
         elif video.duration <= 30: scroll_speed = 60; initial_delay = 1; cycle_gap = 5
         else: scroll_speed = 40; initial_delay = 30; cycle_gap = 30
@@ -174,7 +168,7 @@ def process_video_logic(video_path, output_path, wtype, text, logo_path):
     video.close()
     if wtype == "image": final.close()
 
-# --- API ENDPOINTS ---
+# --- ROUTES ---
 @app.route('/api/run', methods=['POST'])
 def run():
     d = request.json; tid = str(uuid.uuid4())[:8]
@@ -215,8 +209,8 @@ def login():
 def callback():
     f = Flow.from_client_config(RAW_CREDENTIALS, scopes=SCOPES, state=session.get('state')); f.redirect_uri = f"{SERVER_DOMAIN}/callback"
     f.fetch_token(authorization_response=request.url)
-    # Redirect back to GitHub Pages with the token
-    return redirect(f"{FRONTEND_URL}/#auth_data={json.dumps(f.credentials.to_json())}")
+    # Redirect to generic landing to be handled by JS
+    return redirect(f"https://techzonex.store/#auth_data={json.dumps(f.credentials.to_json())}")
 
 @app.route('/')
 def index(): return "Koyeb Backend Active", 200
