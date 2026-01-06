@@ -9,61 +9,134 @@
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;500;700&display=swap');
         body { font-family: 'Space Grotesk', sans-serif; background: #030712; color: #e2e8f0; }
-        .glass { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(51, 65, 85, 0.5); border-radius: 1rem; }
-        input, select { background: #0f172a !important; border: 1px solid #334155 !important; color: white !important; font-size: 0.85rem !important; }
-        ::-webkit-scrollbar { width: 5px; background: #0f172a; } ::-webkit-scrollbar-thumb { background: #3b82f6; border-radius: 5px; }
+        .glass-panel { background: rgba(17, 24, 39, 0.7); backdrop-filter: blur(20px); border: 1px solid rgba(55, 65, 81, 0.5); border-radius: 1rem; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
+        input, select { background: #0f172a !important; border: 1px solid #1e293b !important; color: white !important; font-size: 0.8rem !important; }
+        .show-menu { display: grid !important; }
+        ::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-thumb { background: #334155; }
     </style>
 </head>
-<body class="p-4 md:p-8 min-h-screen">
+<body class="p-3 md:p-6 min-h-screen">
 
     <div class="max-w-7xl mx-auto space-y-6">
-        <nav class="glass p-4 flex justify-between items-center sticky top-2 z-50">
-            <div class="flex items-center gap-3">
-                <div class="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center text-xl font-bold">TZ</div>
-                <div><h1 class="font-bold leading-none">TECHZONEX</h1><span class="text-[10px] text-green-400 font-mono">SYSTEM ONLINE</span></div>
+        
+        <nav class="bg-slate-900/90 p-4 rounded-xl flex flex-col md:flex-row justify-between items-center gap-4 border border-slate-800 sticky top-2 z-50">
+            <div class="flex items-center gap-3 w-full md:w-auto justify-between">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold text-xl">TZ</div>
+                    <div>
+                        <h1 class="font-bold text-white text-lg leading-none">TECHZONEX</h1>
+                        <div class="flex items-center gap-2">
+                            <div id="status-dot" class="w-2 h-2 bg-red-500 rounded-full"></div>
+                            <span id="status-text" class="text-[10px] uppercase text-slate-400 font-bold">Offline</span>
+                        </div>
+                    </div>
+                </div>
+                <button onclick="document.getElementById('quick-menu').classList.toggle('show-menu')" class="md:hidden px-3 py-2 bg-slate-800 rounded text-slate-300"><i class="fas fa-bars"></i></button>
             </div>
-            <div id="auth-btn"></div>
+            
+            <div class="flex items-center gap-3 w-full md:w-auto justify-end">
+                <div id="auth-btn"></div>
+            </div>
+
+            <div id="quick-menu" class="hidden md:grid grid-cols-3 md:grid-cols-5 gap-2 w-full mt-2 md:mt-0 bg-slate-950/50 p-2 rounded-lg md:bg-transparent">
+                <button onclick="scrollCard('copy')" class="p-2 text-[10px] bg-slate-800 rounded hover:bg-slate-700 text-left">📂 Copy</button>
+                <button onclick="scrollCard('rename')" class="p-2 text-[10px] bg-slate-800 rounded hover:bg-slate-700 text-left">✏️ Rename</button>
+                <button onclick="scrollCard('count')" class="p-2 text-[10px] bg-slate-800 rounded hover:bg-slate-700 text-left">📊 Info</button>
+                <button onclick="scrollCard('auto')" class="p-2 text-[10px] bg-slate-800 rounded hover:bg-slate-700 text-left">⚡ Auto</button>
+                <button onclick="scrollCard('smart')" class="p-2 text-[10px] bg-slate-800 rounded hover:bg-slate-700 text-left">🔄 Replace</button>
+                <button onclick="scrollCard('distribute')" class="p-2 text-[10px] bg-slate-800 rounded hover:bg-slate-700 text-left">📡 Distribute</button>
+                <button onclick="scrollCard('trim')" class="p-2 text-[10px] bg-slate-800 rounded hover:bg-slate-700 text-left">✂️ Trim</button>
+                <button onclick="scrollCard('merge')" class="p-2 text-[10px] bg-slate-800 rounded hover:bg-slate-700 text-left">🔗 Merge</button>
+                <button onclick="scrollCard('watermark')" class="p-2 text-[10px] bg-slate-800 rounded hover:bg-slate-700 text-left">💧 Watermark</button>
+            </div>
         </nav>
 
-        <div id="monitor" class="hidden grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+        <div id="monitor-panel" class="hidden">
+            <div class="flex justify-between items-center mb-2 px-1">
+                <h2 class="text-xs font-bold text-slate-500 uppercase tracking-widest">Active Tasks</h2>
+                <button onclick="clearAll()" class="text-[10px] text-blue-400 hover:text-white">CLEAR ALL</button>
+            </div>
+            <div id="task-list" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+        </div>
 
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             
-            <div class="glass p-5 space-y-3 border-t-2 border-cyan-500">
-                <div class="flex justify-between"><h3 class="font-bold">💧 Watermark</h3><span class="text-[10px] bg-cyan-900/30 text-cyan-400 px-2 rounded">BULK READY</span></div>
-                <input type="text" id="wm-url" placeholder="Video OR Folder Link" class="w-full p-3 rounded-lg">
-                <select id="wm-type" class="w-full p-3 rounded-lg bg-slate-900" onchange="toggleWm()">
+            <div id="card-copy" class="glass-panel p-5 space-y-3">
+                <div class="flex justify-between items-center"><i class="fas fa-copy text-blue-500"></i><span class="text-[10px] bg-slate-900 px-2 rounded text-slate-500 font-bold">OPT-01</span></div>
+                <h3 class="font-bold text-white text-sm">Recursive Clone</h3>
+                <input type="text" id="cp-src" placeholder="Source Folder Link/ID" class="w-full p-3 rounded-lg text-sm">
+                <input type="text" id="cp-dst" placeholder="Destination Link/ID" class="w-full p-3 rounded-lg text-sm">
+                <button onclick="run('copy', {src:'cp-src', dst:'cp-dst'})" class="w-full py-3 bg-blue-600 hover:bg-blue-700 rounded-lg font-bold text-sm text-white transition">Clone Folder</button>
+            </div>
+
+            <div id="card-rename" class="glass-panel p-5 space-y-3">
+                <div class="flex justify-between items-center"><i class="fas fa-i-cursor text-purple-500"></i><span class="text-[10px] bg-slate-900 px-2 rounded text-slate-500 font-bold">OPT-02</span></div>
+                <h3 class="font-bold text-white text-sm">Bulk Rename</h3>
+                <input type="text" id="rn-url" placeholder="Target Folder Link/ID" class="w-full p-3 rounded-lg text-sm">
+                <div class="grid grid-cols-2 gap-2"><input type="text" id="rn-s" placeholder="Find" class="p-3 rounded-lg text-sm"><input type="text" id="rn-r" placeholder="Replace" class="p-3 rounded-lg text-sm"></div>
+                <button onclick="run('rename', {url:'rn-url', search:'rn-s', replace:'rn-r'})" class="w-full py-3 bg-purple-600 hover:bg-purple-700 rounded-lg font-bold text-sm text-white transition">Rename All</button>
+            </div>
+
+            <div id="card-count" class="glass-panel p-5 space-y-3">
+                <div class="flex justify-between items-center"><i class="fas fa-chart-pie text-pink-500"></i><span class="text-[10px] bg-slate-900 px-2 rounded text-slate-500 font-bold">OPT-03</span></div>
+                <h3 class="font-bold text-white text-sm">Diagnostics</h3>
+                <input type="text" id="qa-url" placeholder="Folder Link/ID" class="w-full p-3 rounded-lg text-sm">
+                <div class="grid grid-cols-2 gap-2">
+                    <button onclick="run('count', {url:'qa-url'})" class="py-3 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs font-bold text-slate-300">Count</button>
+                    <button onclick="run('info', {url:'qa-url'})" class="py-3 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs font-bold text-slate-300">Metadata</button>
+                </div>
+            </div>
+
+            <div id="card-auto" class="glass-panel p-5 space-y-3 border border-dashed border-yellow-500/30">
+                <div class="flex justify-between items-center"><i class="fas fa-bolt text-yellow-500"></i><span class="text-[10px] bg-slate-900 px-2 rounded text-slate-500 font-bold">OPT-04</span></div>
+                <h3 class="font-bold text-white text-sm">Auto Workflow</h3>
+                <input type="text" id="at-url" placeholder="Source Folder Link/ID" class="w-full p-3 rounded-lg text-sm">
+                <button onclick="run('automated', {url:'at-url'})" class="w-full py-3 bg-yellow-600 hover:bg-yellow-700 rounded-lg font-bold text-sm text-white transition">Execute Sequence</button>
+            </div>
+
+            <div id="card-smart" class="glass-panel p-5 space-y-3">
+                <div class="flex justify-between items-center"><i class="fas fa-sync-alt text-orange-500"></i><span class="text-[10px] bg-slate-900 px-2 rounded text-slate-500 font-bold">OPT-06</span></div>
+                <h3 class="font-bold text-white text-sm">Smart Replace</h3>
+                <input type="text" id="sr-target" placeholder="Target Folder Link/ID" class="w-full p-3 rounded-lg text-sm">
+                <div class="grid grid-cols-2 gap-2"><input type="text" id="sr-sample" placeholder="Sample File ID" class="p-3 rounded-lg text-sm"><input type="text" id="sr-replace" placeholder="New File ID" class="p-3 rounded-lg text-sm"></div>
+                <button onclick="run('smart_replace', {target:'sr-target', sample:'sr-sample', replace:'sr-replace'})" class="w-full py-3 bg-orange-600 hover:bg-orange-700 rounded-lg font-bold text-sm text-white transition">Swap Matches</button>
+            </div>
+
+            <div id="card-distribute" class="glass-panel p-5 space-y-3">
+                <div class="flex justify-between items-center"><i class="fas fa-network-wired text-emerald-500"></i><span class="text-[10px] bg-slate-900 px-2 rounded text-slate-500 font-bold">OPT-07</span></div>
+                <h3 class="font-bold text-white text-sm">Distribute File</h3>
+                <input type="text" id="sd-target" placeholder="Root Target Folder Link/ID" class="w-full p-3 rounded-lg text-sm">
+                <input type="text" id="sd-src" placeholder="File Link/ID" class="w-full p-3 rounded-lg text-sm">
+                <button onclick="run('distribute', {target:'sd-target', source:'sd-src'})" class="w-full py-3 bg-emerald-600 hover:bg-emerald-700 rounded-lg font-bold text-sm text-white transition">Sync to Subfolders</button>
+            </div>
+
+            <div id="card-trim" class="glass-panel p-5 space-y-3">
+                <div class="flex justify-between items-center"><i class="fas fa-scissors text-red-500"></i><span class="text-[10px] bg-slate-900 px-2 rounded text-slate-500 font-bold">OPT-08</span></div>
+                <h3 class="font-bold text-white text-sm">Video Trimmer</h3>
+                <input type="text" id="tr-url" placeholder="Video OR Folder Link/ID" class="w-full p-3 rounded-lg text-sm" onblur="fetchDuration(this.value)">
+                <div class="grid grid-cols-2 gap-2"><input type="text" id="tr-start" placeholder="00:00:00" class="p-3 rounded-lg text-sm"><input type="text" id="tr-end" placeholder="00:00:00" class="p-3 rounded-lg text-sm"></div>
+                <button onclick="run('trim', {url:'tr-url', start:'tr-start', end:'tr-end'})" class="w-full py-3 bg-red-600 hover:bg-red-700 rounded-lg font-bold text-sm text-white transition">Trim & Upload</button>
+            </div>
+
+            <div id="card-merge" class="glass-panel p-5 space-y-3">
+                <div class="flex justify-between items-center"><i class="fas fa-object-group text-indigo-500"></i><span class="text-[10px] bg-slate-900 px-2 rounded text-slate-500 font-bold">OPT-09</span></div>
+                <h3 class="font-bold text-white text-sm">Video Merger</h3>
+                <input type="text" id="vm-1" placeholder="Video 1 (Intro) Link/ID" class="w-full p-3 rounded-lg text-sm">
+                <input type="text" id="vm-2" placeholder="Video 2 (Main) Link/ID" class="w-full p-3 rounded-lg text-sm">
+                <button onclick="run('merge', {src1:'vm-1', src2:'vm-2'})" class="w-full py-3 bg-indigo-600 hover:bg-indigo-700 rounded-lg font-bold text-sm text-white transition">Merge Files</button>
+            </div>
+
+            <div id="card-watermark" class="glass-panel p-5 space-y-3">
+                <div class="flex justify-between items-center"><i class="fas fa-stamp text-cyan-500"></i><span class="text-[10px] bg-slate-900 px-2 rounded text-slate-500 font-bold">OPT-10</span></div>
+                <h3 class="font-bold text-white text-sm">Watermark</h3>
+                <input type="text" id="wm-url" placeholder="Video OR Folder Link/ID" class="w-full p-3 rounded-lg text-sm">
+                <select id="wm-type" class="w-full p-3 rounded-lg text-sm bg-slate-900 text-white" onchange="toggleWm()">
                     <option value="text">Scrolling Text</option>
                     <option value="image">Logo Overlay</option>
                 </select>
-                <div id="wm-txt"><input type="text" id="wm-text" placeholder="Text Content" class="w-full p-3 rounded-lg"></div>
-                <div id="wm-img" class="hidden"><input type="text" id="wm-logo" placeholder="Logo File Link" class="w-full p-3 rounded-lg"></div>
-                <button onclick="run('watermark', {url:'wm-url', type:'wm-type', text:'wm-text', logo_id:'wm-logo'})" class="w-full py-3 bg-cyan-600 hover:bg-cyan-500 rounded-lg font-bold">START PROCESSING</button>
-            </div>
-
-            <div class="glass p-5 space-y-3 border-t-2 border-indigo-500">
-                <div class="flex justify-between"><h3 class="font-bold">🔗 Merger</h3><span class="text-[10px] bg-indigo-900/30 text-indigo-400 px-2 rounded">BULK READY</span></div>
-                <p class="text-xs text-slate-400">If Folder used in Video 2, Video 1 is applied as Intro to all.</p>
-                <input type="text" id="mg-1" placeholder="Video 1 (Intro) Link" class="w-full p-3 rounded-lg">
-                <input type="text" id="mg-2" placeholder="Video 2 (Main/Folder) Link" class="w-full p-3 rounded-lg">
-                <button onclick="run('merge', {src1:'mg-1', src2:'mg-2'})" class="w-full py-3 bg-indigo-600 hover:bg-indigo-500 rounded-lg font-bold">START MERGE</button>
-            </div>
-
-            <div class="glass p-5 space-y-3 border-t-2 border-red-500">
-                <div class="flex justify-between"><h3 class="font-bold">✂️ Trimmer</h3><span class="text-[10px] bg-red-900/30 text-red-400 px-2 rounded">BULK READY</span></div>
-                <input type="text" id="tr-url" placeholder="Video OR Folder Link" class="w-full p-3 rounded-lg" onblur="getDur(this.value)">
-                <div class="flex gap-2">
-                    <input type="text" id="tr-s" placeholder="00:00:00" class="w-full p-3 rounded-lg">
-                    <input type="text" id="tr-e" placeholder="00:00:10" class="w-full p-3 rounded-lg">
-                </div>
-                <button onclick="run('trim', {url:'tr-url', start:'tr-s', end:'tr-e'})" class="w-full py-3 bg-red-600 hover:bg-red-500 rounded-lg font-bold">START TRIM</button>
-            </div>
-
-            <div class="glass p-5 space-y-3 border-t-2 border-blue-500">
-                <h3 class="font-bold">📂 Copy Folder</h3>
-                <input type="text" id="cp-s" placeholder="Source Link" class="w-full p-3 rounded-lg">
-                <input type="text" id="cp-d" placeholder="Destination Link" class="w-full p-3 rounded-lg">
-                <button onclick="run('copy', {src:'cp-s', dst:'cp-d'})" class="w-full py-3 bg-blue-600 hover:bg-blue-500 rounded-lg font-bold">COPY</button>
+                <div id="wm-txt-grp"><input type="text" id="wm-text" placeholder="Text (Use | for lines)" class="w-full p-3 rounded-lg text-sm"></div>
+                <div id="wm-img-grp" class="hidden"><input type="text" id="wm-logo" placeholder="Logo Link/ID" class="w-full p-3 rounded-lg text-sm"></div>
+                <button onclick="run('watermark', {url:'wm-url', type:'wm-type', text:'wm-text', logo_id:'wm-logo'})" class="w-full py-3 bg-cyan-600 hover:bg-cyan-700 rounded-lg font-bold text-sm text-white transition">Apply Watermark</button>
             </div>
 
         </div>
@@ -71,98 +144,123 @@
 
     <script>
         const API = "https://simple-liana-techzone3201-048a28fa.koyeb.app";
-        const tasks = JSON.parse(localStorage.getItem('t') || '[]');
+        const tasks = JSON.parse(localStorage.getItem('tasks') || '[]');
 
         function toggleWm() {
             const t = document.getElementById('wm-type').value;
-            document.getElementById('wm-txt').style.display = t==='text'?'block':'none';
-            document.getElementById('wm-img').style.display = t==='image'?'block':'none';
+            document.getElementById('wm-txt-grp').style.display = t==='text'?'block':'none';
+            document.getElementById('wm-img-grp').style.display = t==='image'?'block':'none';
         }
 
-        async function getDur(url) {
-            if(!url) return;
-            try {
-                const r = await fetch(API+'/api/get_duration', {
-                    method:'POST', headers:{'Content-Type':'application/json'},
-                    body:JSON.stringify({url, creds: localStorage.getItem('c')})
-                });
-                const d = await r.json();
-                if(d.duration) document.getElementById('tr-e').value = d.duration;
-            } catch(e) {}
-        }
+        function scrollCard(id) { document.getElementById('card-'+id).scrollIntoView({behavior:'smooth'}); document.getElementById('quick-menu').classList.remove('show-menu'); }
 
-        function init() {
-            if(window.location.hash.includes('auth_data=')) {
-                localStorage.setItem('c', JSON.parse(decodeURIComponent(window.location.hash.split('auth_data=')[1])));
-                window.history.replaceState(null,null,' ');
-            }
-            const c = localStorage.getItem('c');
-            document.getElementById('auth-btn').innerHTML = c ? 
-                `<button onclick="localStorage.removeItem('c');location.reload()" class="text-red-400 font-bold text-sm">LOGOUT</button>` : 
-                `<a href="${API}/auth/login" class="bg-green-600 px-4 py-2 rounded-lg font-bold text-sm">LOGIN GOOGLE</a>`;
+        async function init() {
+            try { await fetch(API+'/'); document.getElementById('status-dot').className="w-2 h-2 bg-green-500 rounded-full"; document.getElementById('status-text').innerText="Online"; }
+            catch { document.getElementById('status-dot').className="w-2 h-2 bg-red-500 rounded-full"; }
+            
+            const h = window.location.hash;
+            if(h.includes('auth_data=')) { localStorage.setItem('creds', JSON.parse(decodeURIComponent(h.split('auth_data=')[1]))); window.history.replaceState(null,null,' '); location.reload(); }
+            
+            const creds = localStorage.getItem('creds');
+            document.getElementById('auth-btn').innerHTML = creds ? 
+                `<button onclick="localStorage.removeItem('creds');location.reload()" class="px-4 py-2 bg-red-900/30 text-red-200 rounded-lg text-xs font-bold border border-red-500/30">LOGOUT</button>` : 
+                `<button onclick="location.href='${API}/auth/login'" class="px-4 py-2 bg-green-600 text-white rounded-lg text-xs font-bold shadow-lg shadow-green-500/20">LOGIN GOOGLE</button>`;
+            
             tasks.forEach(track);
         }
 
-        async function run(act, flds) {
-            if(!localStorage.getItem('c')) return alert("Login First");
-            const b = {action: act, creds: localStorage.getItem('c')};
-            for(let k in flds) b[k] = document.getElementById(flds[k]).value;
+        async function fetchDuration(url) {
+            if(!url || !localStorage.getItem('creds')) return;
+            document.getElementById('tr-start').value = "...";
+            try {
+                const r = await fetch(API+'/api/get_duration', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({url, creds:localStorage.getItem('creds')})});
+                const d = await r.json();
+                if(d.duration) { document.getElementById('tr-start').value="00:00:00"; document.getElementById('tr-end').value=d.duration; }
+            } catch(e) {}
+        }
+
+        async function run(action, fields) {
+            if(!localStorage.getItem('creds')) return alert("Please Login First");
+            const body = {action, creds: localStorage.getItem('creds')};
+            for(let k in fields) body[k] = document.getElementById(fields[k]).value;
             
             try {
-                const r = await fetch(API+'/api/run', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(b)});
+                const r = await fetch(API+'/api/run', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
                 const d = await r.json();
-                tasks.push(d.id); localStorage.setItem('t', JSON.stringify(tasks));
+                if(!r.ok) throw new Error("Failed");
+                tasks.push(d.id); localStorage.setItem('tasks', JSON.stringify(tasks));
                 track(d.id);
-            } catch(e) { alert("Failed: "+e); }
+            } catch { alert("Failed to start task. Check server status."); }
         }
 
         function track(id) {
-            document.getElementById('monitor').classList.remove('hidden');
+            document.getElementById('monitor-panel').classList.remove('hidden');
             if(document.getElementById('c-'+id)) return;
-            const el = document.createElement('div');
-            el.id = 'c-'+id; el.className = "glass p-4";
-            document.getElementById('monitor').appendChild(el);
+            const card = document.createElement('div');
+            card.id = 'c-'+id;
+            card.className = "bg-slate-900/80 border border-slate-700 p-4 rounded-xl relative overflow-hidden";
+            document.getElementById('task-list').appendChild(card);
 
-            const intv = setInterval(async()=>{
+            const t = setInterval(async () => {
                 try {
                     const r = await fetch(API+'/api/status/'+id);
                     const s = await r.json();
                     
-                    let resHtml = "";
-                    if(s.is_complete) {
-                        clearInterval(intv);
-                        if(s.result_url && !s.status.includes("Failed")) {
-                            resHtml = `
-                            <div class="mt-3 border-t border-slate-700 pt-3">
-                                <video controls class="w-full rounded mb-2 border border-slate-700"><source src="${s.result_url}" type="video/mp4"></video>
-                                <div class="flex gap-2">
-                                    <a href="${s.result_url}" class="flex-1 bg-green-600 text-center py-2 rounded text-sm font-bold">Download</a>
-                                    ${s.drive_link ? `<a href="${s.drive_link}" target="_blank" class="flex-1 bg-blue-600 text-center py-2 rounded text-sm font-bold">Open Drive</a>` : ''}
-                                </div>
-                            </div>`;
-                        }
+                    let stats = "";
+                    if(s.categories) {
+                        stats = `<div class="grid grid-cols-4 gap-1 mt-2 border-t border-slate-800 pt-2">` + 
+                        Object.keys(s.categories).map(k => s.categories[k]>0?`<div class="text-[9px] text-slate-400 bg-slate-950 rounded px-1 text-center">${k}<br><b class="text-white">${s.categories[k]}</b></div>`:"").join('') + `</div>`;
                     }
 
-                    el.innerHTML = `
-                        <div class="flex justify-between mb-2">
-                            <span class="font-bold text-blue-400 text-sm tracking-widest">${s.action || 'TASK'}</span>
-                            <button onclick="dismiss('${id}')" class="text-xs text-slate-500">❌</button>
+                    // --- RESULT UI (Play / DL / Drive) ---
+                    let results = "";
+                    if(s.is_complete && s.result_url) {
+                        results = `
+                        <div class="mt-3 pt-3 border-t border-slate-800">
+                            ${s.action !== 'Copying' && s.action !== 'Renaming' && s.action !== 'Diagnostics' && s.action !== 'Automated WF' && !s.drive_link ? 
+                            `<video controls class="w-full rounded-lg mb-2 border border-slate-700"><source src="${s.result_url}" type="video/mp4"></video>` : ''}
+                            <div class="flex gap-2 justify-end">
+                                ${s.drive_link ? `<a href="${s.drive_link}" target="_blank" class="px-3 py-1 bg-blue-600 text-white text-[10px] font-bold rounded hover:bg-blue-500">OPEN FOLDER</a>` : 
+                                `<a href="${s.result_url}" class="px-3 py-1 bg-green-600 text-white text-[10px] font-bold rounded hover:bg-green-500">DOWNLOAD</a>
+                                 <a href="${s.drive_link}" target="_blank" class="px-3 py-1 bg-blue-600/20 text-blue-400 text-[10px] font-bold rounded border border-blue-600/50 hover:bg-blue-600/40">DRIVE LINK</a>`}
+                            </div>
+                        </div>`;
+                    }
+
+                    let btn = `<button onclick="fetch('${API}/api/cancel/${id}',{method:'POST'})" class="text-red-400 text-[10px] font-bold border border-red-900 px-2 py-1 rounded">CANCEL</button>`;
+                    if(s.is_complete) {
+                        clearInterval(t);
+                        btn = `<button onclick="dismiss('${id}')" class="text-slate-400 text-[10px] font-bold bg-slate-800 px-2 py-1 rounded">DISMISS</button>`;
+                    }
+
+                    card.innerHTML = `
+                        <div class="flex justify-between items-start mb-2">
+                            <div><div class="text-[10px] font-bold text-blue-400 uppercase tracking-widest">${s.action || 'Task'}</div><div class="text-[9px] text-slate-500">#${id}</div></div>
+                            ${btn}
                         </div>
-                        <div class="text-sm font-bold text-white truncate">${s.status}</div>
-                        <div class="w-full bg-slate-900 h-1.5 rounded-full mt-2 overflow-hidden">
-                            <div class="bg-blue-500 h-full transition-all duration-300" style="width:${s.percent}%"></div>
-                        </div>
-                        ${resHtml}
+                        <div class="text-xs font-bold text-white mb-1 truncate">${s.status}</div>
+                        <div class="w-full bg-slate-950 h-1 rounded overflow-hidden"><div class="bg-blue-500 h-full transition-all duration-500" style="width:${s.percent}%"></div></div>
+                        <div class="flex justify-between mt-1 text-[9px] text-slate-500"><span>${s.current}/${s.total}</span><span>${s.percent}%</span></div>
+                        ${stats}
+                        ${results}
                     `;
-                } catch(e) { clearInterval(intv); }
+                } catch {}
             }, 1500);
         }
 
         function dismiss(id) {
             document.getElementById('c-'+id).remove();
             const idx = tasks.indexOf(id); if(idx>-1) tasks.splice(idx,1);
-            localStorage.setItem('t', JSON.stringify(tasks));
+            localStorage.setItem('tasks', JSON.stringify(tasks));
             fetch(API+'/api/dismiss/'+id, {method:'POST'});
+            if(tasks.length===0) document.getElementById('monitor-panel').classList.add('hidden');
+        }
+
+        function clearAll() {
+            tasks.forEach(id => fetch(API+'/api/dismiss/'+id, {method:'POST'}));
+            tasks.length=0; localStorage.setItem('tasks', '[]');
+            document.getElementById('task-list').innerHTML="";
+            document.getElementById('monitor-panel').classList.add('hidden');
         }
 
         window.onload = init;
