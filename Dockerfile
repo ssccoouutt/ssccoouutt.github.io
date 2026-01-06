@@ -3,11 +3,10 @@
 # ==========================================
 FROM python:3.9-slim
 
-# 1. Install System Tools (FFmpeg, Fonts, ImageMagick)
+# 1. Install System Tools
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     ffmpeg imagemagick wget curl git build-essential libmagic1 file procps fonts-liberation && \
-    # Fix ImageMagick security policy to allow text
     if [ -f /etc/ImageMagick-6/policy.xml ]; then \
         sed -i 's/none/read,write/g' /etc/ImageMagick-6/policy.xml; \
     fi && \
@@ -15,30 +14,29 @@ RUN apt-get update && \
 
 WORKDIR /app
 
-# 2. Install Python Dependencies (FIXED VERSIONS)
-# We install decorator 4.4.2 FIRST to strictly prevent the 5.1.1 conflict
+# 2. Install Python Dependencies
+# !!! FIXED: Pillow==9.5.0 restores ANTIALIAS support for MoviePy !!!
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir "decorator==4.4.2" && \
+    pip install --no-cache-dir "decorator<5.0" && \
     pip install --no-cache-dir \
-    flask \
-    flask-cors \
-    requests \
-    google-api-python-client \
-    google-auth-httplib2 \
-    google-auth-oauthlib \
-    gunicorn \
-    werkzeug \
     "moviepy==1.0.3" \
-    "numpy<2.0.0" \
-    "Pillow" \
-    "imageio-ffmpeg" \
-    proglog \
-    tqdm
+    "numpy==1.24.3" \
+    "Pillow==9.5.0" \
+    "imageio-ffmpeg==0.4.9" \
+    "proglog" \
+    "tqdm" \
+    "flask" \
+    "flask-cors" \
+    "requests" \
+    "gunicorn" \
+    "google-api-python-client" \
+    "google-auth-httplib2" \
+    "google-auth-oauthlib"
 
-# Create temp folders
+# Create folders
 RUN mkdir -p /tmp drive
 
-# 3. Write the Backend Code (app.py)
+# 3. Write Backend Code
 RUN cat << 'EOF' > app.py
 import os, json, uuid, time, io, sys, logging, traceback, threading
 import numpy as np
@@ -52,14 +50,12 @@ from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
 from moviepy.editor import VideoFileClip, ImageClip, CompositeVideoClip
 from PIL import Image, ImageDraw, ImageFont
 
-# --- LOGGING ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s', handlers=[logging.StreamHandler(sys.stdout)])
 logger = logging.getLogger(__name__)
 
 # --- CONFIG ---
-# UPDATE THIS: The URL where your GitHub Pages is hosted
-FRONTEND_URL = "https://techzone3201.github.io" 
-# UPDATE THIS: Your Koyeb URL
+# UPDATE THESE TWO LINES
+FRONTEND_URL = "https://techzone3201.github.io"
 SERVER_DOMAIN = "https://simple-liana-techzone3201-048a28fa.koyeb.app"
 
 TEMP_DIR = "/tmp"
@@ -88,7 +84,6 @@ CORS(app, resources={r"/*": {"origins": "*"}})
 TASKS = {}
 TASK_FLAGS = {}
 
-# --- HELPERS ---
 def get_service(creds):
     c = Credentials.from_authorized_user_info(json.loads(creds), SCOPES)
     if c.expired and c.refresh_token: c.refresh(Request())
@@ -102,13 +97,11 @@ def download_file(service, fid, path):
         done = False
         while not done: _, done = d.next_chunk()
 
-# --- WATERMARK PROCESSING ---
 def process_video_logic(video_path, output_path, wtype, text, logo_path):
     logger.info(f"Processing Video: {wtype}")
     video = VideoFileClip(video_path)
     
     if wtype == "image":
-        # Static Logo Logic
         if not os.path.exists(logo_path): raise Exception("Logo file missing")
         watermark_img = Image.open(logo_path)
         if watermark_img.mode != 'RGBA': watermark_img = watermark_img.convert('RGBA')
@@ -126,7 +119,6 @@ def process_video_logic(video_path, output_path, wtype, text, logo_path):
         final = CompositeVideoClip([video, logo_clip])
     
     else:
-        # Scrolling Text Logic
         try: font = ImageFont.truetype(SYSTEM_FONT, 50)
         except: font = ImageFont.load_default()
         
@@ -135,7 +127,6 @@ def process_video_logic(video_path, output_path, wtype, text, logo_path):
         text_width = bbox[2] - bbox[0]
         text_height = bbox[3] - bbox[1]
         
-        # Adaptive Speed
         if video.duration <= 10: scroll_speed = 80; initial_delay = 0; cycle_gap = 2
         elif video.duration <= 30: scroll_speed = 60; initial_delay = 1; cycle_gap = 5
         else: scroll_speed = 40; initial_delay = 30; cycle_gap = 30
@@ -169,12 +160,10 @@ def process_video_logic(video_path, output_path, wtype, text, logo_path):
 
         final = video.fl(scroll_filter)
 
-    # Render
     final.write_videofile(output_path, codec='libx264', audio_codec='aac', threads=4, preset='ultrafast', logger=None)
     video.close()
     if wtype == "image": final.close()
 
-# --- API ENDPOINTS ---
 @app.route('/api/run', methods=['POST'])
 def run():
     d = request.json; tid = str(uuid.uuid4())[:8]
@@ -183,17 +172,13 @@ def run():
         try:
             s = get_service(d['creds']); fid = d['url'].split('file/d/')[1].split('/')[0]
             vin = f"{TEMP_DIR}/{tid}_i.mp4"; vout = f"{TEMP_DIR}/{tid}_o.mp4"; lin = f"{TEMP_DIR}/{tid}_l.png"
-            
             TASKS[tid].update({"status":"Downloading Video", "pct":10}); download_file(s, fid, vin)
             if d['type'] == 'image':
                 TASKS[tid].update({"status":"Downloading Logo", "pct":30}); download_file(s, d['logo_id'], lin)
-
             TASKS[tid].update({"status":"Processing", "pct":50}); process_video_logic(vin, vout, d['type'], d['text'], lin)
-
             TASKS[tid].update({"status":"Uploading", "pct":90})
             m = MediaFileUpload(vout, mimetype='video/mp4', resumable=True)
             s.files().create(body={'name': f"Watermarked_{tid}.mp4"}, media_body=m).execute()
-
             TASKS[tid].update({"status":"Done", "pct":100, "done":True, "url":f"{SERVER_DOMAIN}/api/dl/{tid}"})
         except Exception as e:
             logger.error(traceback.format_exc()); TASKS[tid].update({"status":f"Error: {str(e)}", "done":True})
@@ -215,7 +200,6 @@ def login():
 def callback():
     f = Flow.from_client_config(RAW_CREDENTIALS, scopes=SCOPES, state=session.get('state')); f.redirect_uri = f"{SERVER_DOMAIN}/callback"
     f.fetch_token(authorization_response=request.url)
-    # Redirect back to GitHub Pages with the token
     return redirect(f"{FRONTEND_URL}/#auth_data={json.dumps(f.credentials.to_json())}")
 
 @app.route('/')
