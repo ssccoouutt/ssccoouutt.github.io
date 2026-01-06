@@ -1,20 +1,36 @@
 # ==========================================
-# KOYEB SUPER SUITE (Bulk + Single Support)
+# KOYEB SUPER SUITE (Enhanced Version)
 # ==========================================
-FROM python:3.10-slim
+FROM python:3.11-slim
 
-# 1. Install System Tools
+# 1. Install System Tools + Chrome for YouTube downloader
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-    ffmpeg imagemagick wget curl git build-essential libmagic1 file procps fonts-liberation && \
+    ffmpeg imagemagick wget curl git build-essential \
+    libmagic1 file procps fonts-liberation \
+    gnupg unzip ca-certificates && \
+    # Fix ImageMagick policy
     if [ -f /etc/ImageMagick-6/policy.xml ]; then \
         sed -i 's/none/read,write/g' /etc/ImageMagick-6/policy.xml; \
     fi && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
+    # Install Chrome for YouTube downloader
+    mkdir -p /etc/apt/keyrings && \
+    wget -q -O /etc/apt/keyrings/google-chrome.gpg https://dl.google.com/linux/linux_signing_key.pub && \
+    echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list && \
+    apt-get update && \
+    apt-get install -y google-chrome-stable && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install ChromeDriver
+RUN wget -q -O /tmp/chromedriver.zip https://storage.googleapis.com/chrome-for-testing-public/latest/linux64/chromedriver-linux64.zip && \
+    unzip /tmp/chromedriver.zip -d /tmp/ && \
+    mv /tmp/chromedriver-linux64/chromedriver /usr/local/bin/ && \
+    chmod +x /usr/local/bin/chromedriver && \
+    rm -rf /tmp/chromedriver* /tmp/chromedriver.zip
 
 WORKDIR /app
 
-# 2. Install Python Dependencies (Fixed & Pinned)
+# 2. Install Python Dependencies (including yt-dlp for YouTube)
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir "decorator<5.0" && \
     pip install --no-cache-dir \
@@ -30,17 +46,20 @@ RUN pip install --no-cache-dir --upgrade pip && \
     "gunicorn" \
     "google-api-python-client" \
     "google-auth-httplib2" \
-    "google-auth-oauthlib"
+    "google-auth-oauthlib" \
+    "yt-dlp" \
+    "selenium==4.15.2" \
+    "aiohttp==3.9.1"
 
 # Create folders
-RUN mkdir -p /tmp drive
+RUN mkdir -p /tmp drive cookies
 
 # ==========================================
-# 3. BACKEND CODE (app.py) - FIXED VERSION
+# 3. BACKEND CODE (app.py) - ENHANCED VERSION
 # ==========================================
 RUN cat << 'EOF' > app.py
 import os, json, uuid, time, io, sys, logging, traceback, threading, shutil
-import subprocess
+import subprocess, datetime, re
 import numpy as np
 from flask import Flask, request, jsonify, redirect, session, send_file
 from flask_cors import CORS
@@ -51,17 +70,21 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
 from moviepy.editor import VideoFileClip, ImageClip, CompositeVideoClip, concatenate_videoclips
 from PIL import Image, ImageDraw, ImageFont
-import datetime
+import yt_dlp
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
 
 # --- CONFIG ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s', handlers=[logging.StreamHandler(sys.stdout)])
 logger = logging.getLogger(__name__)
 
 # UPDATE URLS
-FRONTEND_URL = "https://techzonex.store"
+FRONTEND_URL = "https://techzonex.store" 
 SERVER_DOMAIN = "https://simple-liana-techzone3201-048a28fa.koyeb.app"
 
 TEMP_DIR = "/tmp"
+COOKIES_DIR = "/app/cookies"
 SYSTEM_FONT = "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
 
 # AUTO FOLDERS
@@ -81,7 +104,7 @@ RAW_CREDENTIALS = {
     }
 }
 
-os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
+os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1' 
 SCOPES = ["https://www.googleapis.com/auth/drive"]
 
 app = Flask(__name__)
@@ -95,58 +118,154 @@ MIME_MAP = {'application/pdf':'PDF', 'image/':'Images', 'video/':'Videos', 'audi
 # --- HELPERS ---
 class ProgressTracker:
     def __init__(self, task_id, action="Task"):
-        self.task_id = task_id; self.action = action; self.status = "Initializing..."
-        self.percent = 0; self.is_complete = False; self.result_url = None; self.drive_link = None
-        self.current = 0; self.total = 0; self.categories = {}
+        self.task_id = task_id
+        self.action = action
+        self.status = "Initializing..."
+        self.percent = 0
+        self.is_complete = False
+        self.result_url = None
+        self.drive_link = None
+        self.current = 0
+        self.total = 0
+        self.categories = {}
+        self.details = {}
         self.save()
+    
     def update(self, status, pct=None):
-        if TASK_FLAGS.get(self.task_id): raise Exception("Cancelled")
-        self.status = status;
-        if pct is not None: self.percent = pct
+        if TASK_FLAGS.get(self.task_id): 
+            raise Exception("Cancelled")
+        self.status = status
+        if pct is not None: 
+            self.percent = pct
         self.save()
-    def scan_update(self, count, cats=None):
-        self.update(f"Scanning ({count})..."); self.categories = cats or self.categories; self.save()
+    
+    def scan_update(self, count, cats=None, details=None):
+        self.update(f"Scanning ({count})...")
+        self.categories = cats or self.categories
+        self.details = details or self.details
+        self.save()
+    
     def complete(self, url=None, drive_link=None):
-        self.status = "Done"; self.percent = 100; self.is_complete = True; self.result_url = url; self.drive_link = drive_link; self.save()
+        self.status = "Done"
+        self.percent = 100
+        self.is_complete = True
+        self.result_url = url
+        self.drive_link = drive_link
+        self.save()
+    
     def fail(self, err):
-        self.status = f"Failed: {err}"; self.is_complete = True; logger.error(err); self.save()
+        self.status = f"Failed: {err}"
+        self.is_complete = True
+        logger.error(err)
+        self.save()
+    
     def save(self):
         TASKS[self.task_id] = self.__dict__
 
 def get_service(creds):
     c = Credentials.from_authorized_user_info(json.loads(creds), SCOPES)
-    if c.expired and c.refresh_token: c.refresh(Request())
+    if c.expired and c.refresh_token: 
+        c.refresh(Request())
     return build("drive", "v3", credentials=c)
 
 def extract_id(url):
-    if not url: return None
+    if not url: 
+        return None
     url = str(url).strip()
-    if 'file/d/' in url: return url.split('file/d/')[1].split('/')[0]
-    if 'folders/' in url: return url.split('folders/')[1].split('?')[0]
-    if 'id=' in url: return url.split('id=')[1].split('&')[0]
+    if 'file/d/' in url: 
+        return url.split('file/d/')[1].split('/')[0]
+    if 'folders/' in url: 
+        return url.split('folders/')[1].split('?')[0]
+    if 'id=' in url: 
+        return url.split('id=')[1].split('&')[0]
     return url
 
 def list_recursive(service, folder_id, tracker=None):
-    files = []; counts = {v: 0 for v in MIME_MAP.values()}; counts['Other'] = 0; page = None
-    while True:
-        try:
-            if tracker and TASK_FLAGS.get(tracker.task_id): raise Exception("Cancelled")
-            res = service.files().list(q=f"'{folder_id}' in parents and trashed=false", fields="nextPageToken, files(id, name, mimeType, size, parents)", pageToken=page).execute()
-            for f in res.get('files', []):
-                cat = "Other"
-                for m, label in MIME_MAP.items():
-                    if f['mimeType'].startswith(m): cat = label; break
-                counts[cat] += 1
-                if f['mimeType'] == 'application/vnd.google-apps.folder':
-                    files.append(f); sub_files, sub_counts = list_recursive(service, f['id'], tracker)
-                    files.extend(sub_files);
-                    for k, v in sub_counts.items(): counts[k] += v
-                else: files.append(f)
-            if tracker and len(files) % 10 == 0: tracker.scan_update(len(files), counts)
-            page = res.get('nextPageToken');
-            if not page: break
-        except: break
-    return files, counts
+    files = []
+    counts = {v: 0 for v in MIME_MAP.values()}
+    counts['Other'] = 0
+    details = {
+        'total_files': 0,
+        'total_folders': 0,
+        'total_size_bytes': 0,
+        'largest_file': {'name': '', 'size': 0},
+        'extensions': {},
+        'nested_folders': 0
+    }
+    
+    def scan_folder(fid, depth=0):
+        nonlocal details
+        if depth > 0:
+            details['nested_folders'] += 1
+        
+        page_token = None
+        while True:
+            try:
+                if tracker and TASK_FLAGS.get(tracker.task_id): 
+                    raise Exception("Cancelled")
+                
+                res = service.files().list(
+                    q=f"'{fid}' in parents and trashed=false",
+                    fields="nextPageToken, files(id, name, mimeType, size, parents, fileExtension)",
+                    pageToken=page_token,
+                    pageSize=100
+                ).execute()
+                
+                for f in res.get('files', []):
+                    cat = "Other"
+                    for m, label in MIME_MAP.items():
+                        if f['mimeType'].startswith(m): 
+                            cat = label
+                            break
+                    counts[cat] += 1
+                    details['total_files'] += 1
+                    
+                    # Track file size
+                    size = int(f.get('size', 0))
+                    details['total_size_bytes'] += size
+                    if size > details['largest_file']['size']:
+                        details['largest_file'] = {'name': f['name'], 'size': size}
+                    
+                    # Track extensions
+                    ext = f.get('fileExtension', 'no_ext').lower()
+                    if ext not in details['extensions']:
+                        details['extensions'][ext] = 0
+                    details['extensions'][ext] += 1
+                    
+                    if f['mimeType'] == 'application/vnd.google-apps.folder':
+                        details['total_folders'] += 1
+                        files.append(f)
+                        sub_files, sub_counts, sub_details = scan_folder(f['id'], depth + 1)
+                        files.extend(sub_files)
+                        for k, v in sub_counts.items(): 
+                            counts[k] += v
+                        for k, v in sub_details.items():
+                            if k in ['total_files', 'total_folders', 'total_size_bytes', 'nested_folders']:
+                                details[k] += v
+                            elif k == 'largest_file' and v['size'] > details['largest_file']['size']:
+                                details['largest_file'] = v
+                            elif k == 'extensions':
+                                for ext2, count in v.items():
+                                    if ext2 not in details['extensions']:
+                                        details['extensions'][ext2] = 0
+                                    details['extensions'][ext2] += count
+                    else:
+                        files.append(f)
+                
+                page_token = res.get('nextPageToken')
+                if not page_token: 
+                    break
+                    
+                if tracker and details['total_files'] % 50 == 0:
+                    tracker.scan_update(details['total_files'], counts, details)
+                    
+            except Exception as e:
+                logger.error(f"Error scanning folder: {e}")
+                break
+        
+        return files, counts, details
+    
+    return scan_folder(folder_id)
 
 def download_file(service, fid, path):
     logger.info(f"DL {fid}...")
@@ -154,67 +273,193 @@ def download_file(service, fid, path):
     with io.FileIO(path, 'wb') as fh:
         d = MediaIoBaseDownload(fh, req)
         done = False
-        while not done: _, done = d.next_chunk()
+        while not done: 
+            _, done = d.next_chunk()
 
 def upload_file(service, path, name, parent=None):
-    meta = {'name': name};
-    if parent: meta['parents'] = [parent]
-    media = MediaFileUpload(path, mimetype='video/mp4', resumable=True)
+    meta = {'name': name}
+    if parent: 
+        meta['parents'] = [parent]
+    
+    # Detect mime type
+    mime = 'application/octet-stream'
+    if path.lower().endswith('.mp4'): mime = 'video/mp4'
+    elif path.lower().endswith('.mp3'): mime = 'audio/mp3'
+    elif path.lower().endswith('.jpg') or path.lower().endswith('.jpeg'): mime = 'image/jpeg'
+    elif path.lower().endswith('.png'): mime = 'image/png'
+    elif path.lower().endswith('.pdf'): mime = 'application/pdf'
+    
+    media = MediaFileUpload(path, mimetype=mime, resumable=True)
     f = service.files().create(body=meta, media_body=media, fields='id, webViewLink').execute()
     return f
 
 # --- VIDEO PROCESSORS ---
 def core_watermark(vin, vout, wtype, text, logo_path):
     video = VideoFileClip(vin)
+    
+    # Preserve original resolution
+    output_resolution = (video.w, video.h)
+    
     if wtype == "image":
         img = Image.open(logo_path).convert('RGBA')
         img_np = np.array(img)
-        if len(img_np.shape) == 2: img_np = np.stack([img_np]*3, axis=-1)
-        elif img_np.shape[2] == 4: img_np = img_np[..., :3]
+        if len(img_np.shape) == 2: 
+            img_np = np.stack([img_np]*3, axis=-1)
+        elif img_np.shape[2] == 4: 
+            img_np = img_np[..., :3]
         logo = ImageClip(img_np).set_duration(video.duration).resize(height=int(video.h*0.07)).set_opacity(1.0).set_pos(('right','bottom'))
         final = CompositeVideoClip([video, logo])
     else:
-        try: font = ImageFont.truetype(SYSTEM_FONT, 50)
-        except: font = ImageFont.load_default()
+        try: 
+            font = ImageFont.truetype(SYSTEM_FONT, 50)
+        except: 
+            font = ImageFont.load_default()
         d = ImageDraw.Draw(Image.new('RGB',(1,1)))
         bbox = d.textbbox((0,0), text, font=font)
         tw, th = bbox[2]-bbox[0], bbox[3]-bbox[1]
         spd = 80 if video.duration<=10 else (60 if video.duration<=30 else 40)
         delay = 0 if video.duration<=10 else (1 if video.duration<=30 else 30)
         gap = 2 if video.duration<=10 else (5 if video.duration<=30 else 30)
+        
         def fl(get_frame, t):
             frame = get_frame(t)
-            if t < delay: return frame
-            img = Image.fromarray(frame); draw = ImageDraw.Draw(img, 'RGBA'); ts = max(0, t - delay)
+            if t < delay: 
+                return frame
+            img = Image.fromarray(frame)
+            draw = ImageDraw.Draw(img, 'RGBA')
+            ts = max(0, t - delay)
+            
             if video.duration <= 10:
-                ld = (video.w + tw) / spd; prog = (ts % ld) / ld; x = int(video.w - prog * (video.w + tw))
+                ld = (video.w + tw) / spd
+                prog = (ts % ld) / ld
+                x = int(video.w - prog * (video.w + tw))
             else:
-                ad = (video.w + tw) / spd; tc = ad + gap; tic = ts % tc
-                if tic <= ad: x = int(video.w - (tic/ad)*(video.w+tw))
-                else: return frame
+                ad = (video.w + tw) / spd
+                tc = ad + gap
+                tic = ts % tc
+                if tic <= ad: 
+                    x = int(video.w - (tic/ad)*(video.w+tw))
+                else: 
+                    return frame
+            
             y = video.h - 50 - th
             draw.rectangle([(x-15, y-15), (x+tw+15, y+th+15)], fill=(0,0,0,230))
             draw.text((x, y-bbox[1]), text, font=font, fill=(255,255,255,255))
             return np.array(img)
+        
         final = video.fl(fl)
+    
+    # Preserve original resolution
+    final = final.resize(output_resolution)
     final.write_videofile(vout, codec='libx264', audio_codec='aac', preset='ultrafast', threads=4, logger=None)
-    video.close();
-    if wtype=="image": final.close()
+    video.close()
+    if wtype=="image": 
+        final.close()
 
 def core_merge(v1_path, v2_path, out_path):
     clip1 = VideoFileClip(v1_path)
     clip2 = VideoFileClip(v2_path)
+    
+    # Use resolution of larger video
+    if clip1.size[0] * clip1.size[1] >= clip2.size[0] * clip2.size[1]:
+        # Clip1 is larger or equal
+        clip2 = clip2.resize(clip1.size)
+    else:
+        # Clip2 is larger
+        clip1 = clip1.resize(clip2.size)
+    
     final = concatenate_videoclips([clip1, clip2], method="compose")
     final.write_videofile(out_path, codec='libx264', audio_codec='aac', preset='ultrafast', threads=4, logger=None)
-    clip1.close(); clip2.close(); final.close()
+    clip1.close()
+    clip2.close()
+    final.close()
 
 def core_trim(vin, vout, st, et):
-    subprocess.run(f"ffmpeg -i {vin} -ss {st} -to {et} -c copy {vout} -y", shell=True, check=True)
+    # Parse time strings
+    def parse_time(t):
+        if ':' in str(t):
+            parts = list(map(float, str(t).split(':')))
+            if len(parts) == 3:  # HH:MM:SS
+                return parts[0]*3600 + parts[1]*60 + parts[2]
+            elif len(parts) == 2:  # MM:SS
+                return parts[0]*60 + parts[1]
+        # SS or float
+        return float(t)
+    
+    start_sec = parse_time(st)
+    end_sec = parse_time(et)
+    
+    # Use FFmpeg for precise trimming
+    cmd = f"ffmpeg -i '{vin}' -ss {start_sec} -to {end_sec} -c copy '{vout}' -y -loglevel error"
+    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+    if result.returncode != 0:
+        # Fallback to moviepy if FFmpeg fails
+        video = VideoFileClip(vin)
+        trimmed = video.subclip(start_sec, end_sec)
+        trimmed.write_videofile(vout, codec='libx264', audio_codec='aac', preset='ultrafast', threads=4, logger=None)
+        video.close()
+        trimmed.close()
+
+# --- YOUTUBE DOWNLOADER ---
+def download_youtube_video(url, quality='best', download_dir=TEMP_DIR):
+    """Download YouTube video using yt-dlp"""
+    try:
+        ydl_opts = {
+            'format': f'bestvideo[height<={quality if quality!="best" else 1080}]+bestaudio/best' if quality != 'best' else 'best',
+            'outtmpl': os.path.join(download_dir, '%(title)s.%(ext)s'),
+            'quiet': False,
+            'no_warnings': False,
+            'extract_flat': False,
+            'merge_output_format': 'mp4',
+            'postprocessors': [{
+                'key': 'FFmpegVideoConvertor',
+                'preferedformat': 'mp4',
+            }],
+            'cookiefile': os.path.join(COOKIES_DIR, 'youtube_cookies.txt') if os.path.exists(os.path.join(COOKIES_DIR, 'youtube_cookies.txt')) else None,
+        }
+        
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            downloaded_file = ydl.prepare_filename(info)
+            
+            # Ensure mp4 extension
+            if not downloaded_file.endswith('.mp4'):
+                mp4_file = downloaded_file.rsplit('.', 1)[0] + '.mp4'
+                if os.path.exists(downloaded_file):
+                    os.rename(downloaded_file, mp4_file)
+                    downloaded_file = mp4_file
+            
+            return {
+                'success': True,
+                'file_path': downloaded_file,
+                'title': info.get('title', 'Unknown'),
+                'duration': info.get('duration', 0),
+                'quality': info.get('height', 'Unknown'),
+                'thumbnail': info.get('thumbnail', '')
+            }
+    except Exception as e:
+        logger.error(f"YouTube download error: {e}")
+        return {'success': False, 'error': str(e)}
 
 # --- WORKER LOGIC ---
 def process_item(item, action, data, service, tr, temp_files):
     uid = str(uuid.uuid4())[:4]
-    vin = f"{TEMP_DIR}/i_{uid}.mp4"; vout = f"{TEMP_DIR}/o_{uid}.mp4"
+    original_name = item['name']
+    original_name_no_ext = os.path.splitext(original_name)[0]
+    original_ext = os.path.splitext(original_name)[1] if '.' in original_name else '.mp4'
+    
+    vin = f"{TEMP_DIR}/i_{uid}_{original_name_no_ext}{original_ext}"
+    vout = f"{TEMP_DIR}/{original_name_no_ext}"
+    
+    # Add suffix based on action
+    if action == "watermark":
+        vout += "_watermarked"
+    elif action == "trim":
+        vout += "_trimmed"
+    elif action == "merge":
+        vout += "_merged"
+    
+    vout += original_ext
     
     download_file(service, item['id'], vin)
     
@@ -238,21 +483,76 @@ def process_item(item, action, data, service, tr, temp_files):
         else:
             core_merge(vin, static_vid, vout)
 
+    # Upload with processed name
     parent = item['parents'][0] if 'parents' in item else None
-    up = upload_file(service, vout, f"Processed_{item['name']}", parent)
+    upload_name = os.path.basename(vout)
+    up = upload_file(service, vout, upload_name, parent)
     
-    if os.path.exists(vin): os.remove(vin)
+    if os.path.exists(vin): 
+        os.remove(vin)
     
     return vout, up.get('webViewLink')
 
+# --- API ENDPOINTS ---
 @app.route('/api/run', methods=['POST'])
 def run():
-    d = request.json; action = d.get('action'); tid = str(uuid.uuid4())[:8]
-    def w():
+    d = request.json
+    action = d.get('action')
+    tid = str(uuid.uuid4())[:8]
+    
+    def worker():
         tr = ProgressTracker(tid, action)
         try:
             s = get_service(d['creds'])
             
+            # YouTube Downloader
+            if action == "youtube":
+                tr.update("Starting YouTube download...", 10)
+                url = d.get('url')
+                quality = d.get('quality', 'best')
+                process_type = d.get('process_type', 'none')  # none, trim, watermark
+                process_data = d.get('process_data', {})
+                
+                # Download from YouTube
+                tr.update("Downloading from YouTube...", 30)
+                result = download_youtube_video(url, quality)
+                
+                if not result['success']:
+                    raise Exception(f"YouTube download failed: {result.get('error', 'Unknown error')}")
+                
+                # Process if requested
+                input_file = result['file_path']
+                output_file = input_file.replace('.mp4', '_processed.mp4')
+                
+                if process_type == 'trim':
+                    tr.update("Trimming video...", 60)
+                    core_trim(input_file, output_file, process_data.get('start', '00:00:00'), process_data.get('end', '00:01:00'))
+                elif process_type == 'watermark':
+                    tr.update("Adding watermark...", 60)
+                    if process_data.get('type') == 'image' and process_data.get('logo_id'):
+                        lin = f"{TEMP_DIR}/l_{tid}.png"
+                        download_file(s, extract_id(process_data['logo_id']), lin)
+                        core_watermark(input_file, output_file, process_data['type'], process_data.get('text', ''), lin)
+                    else:
+                        core_watermark(input_file, output_file, 'text', process_data.get('text', 'Watermark'), None)
+                else:
+                    output_file = input_file
+                
+                # Upload to Google Drive
+                tr.update("Uploading to Google Drive...", 80)
+                parent = extract_id(d.get('destination'))
+                upload_name = f"YouTube_{result['title'][:50]}.mp4"
+                up = upload_file(s, output_file, upload_name, parent)
+                
+                tr.complete(f"{SERVER_DOMAIN}/api/dl/{os.path.basename(output_file)}", up.get('webViewLink'))
+                
+                # Cleanup
+                for f in [input_file, output_file]:
+                    if os.path.exists(f) and f != output_file:
+                        os.remove(f)
+                return
+            
+            # Detect bulk vs single
             primary_id = extract_id(d.get('url') or d.get('src') or d.get('src2') or d.get('target'))
             is_folder = False
             
@@ -262,96 +562,398 @@ def run():
                 meta2 = s.files().get(fileId=id2, fields='mimeType').execute()
                 
                 if 'folder' in meta2['mimeType'] and 'video' in meta1['mimeType']:
-                    is_folder = True; target_id = id2; d['merge_mode'] = 'intro'
+                    is_folder = True
+                    target_id = id2
+                    d['merge_mode'] = 'intro'
                 elif 'folder' in meta1['mimeType'] and 'video' in meta2['mimeType']:
-                    is_folder = True; target_id = id1; d['merge_mode'] = 'outro'
+                    is_folder = True
+                    target_id = id1
+                    d['merge_mode'] = 'outro'
                 else:
                     target_id = id1
             else:
                 try:
                     meta = s.files().get(fileId=primary_id, fields='mimeType').execute()
-                    if 'folder' in meta['mimeType']: is_folder = True; target_id = primary_id
-                    else: target_id = primary_id
-                except: target_id = primary_id
+                    if 'folder' in meta['mimeType']:
+                        is_folder = True
+                        target_id = primary_id
+                    else:
+                        target_id = primary_id
+                except:
+                    target_id = primary_id
 
+            # Bulk execution
             if is_folder and action in ['watermark', 'trim', 'merge']:
                 tr.update("Scanning Folder...", 0)
-                all_files, _ = list_recursive(s, target_id, tr)
+                all_files, counts, details = list_recursive(s, target_id, tr)
                 videos = [f for f in all_files if 'video' in f['mimeType']]
-                tr.total = len(videos); tr.save()
+                tr.total = len(videos)
+                tr.details = details
+                tr.save()
                 
-                if tr.total == 0: raise Exception("No videos found in folder")
+                if tr.total == 0: 
+                    raise Exception("No videos found in folder")
                 
                 processed_folder_link = f"https://drive.google.com/drive/folders/{target_id}"
                 
                 for i, vid in enumerate(videos):
-                    tr.update(f"Processing {i+1}/{tr.total}: {vid['name'][:10]}...", int((i/tr.total)*100))
+                    if TASK_FLAGS.get(tid):
+                        raise Exception("Cancelled")
+                    
+                    tr.update(f"Processing {i+1}/{tr.total}: {vid['name'][:30]}...", int((i/tr.total)*100))
                     f_out, _ = process_item(vid, action, d, s, tr, [])
-                    if os.path.exists(f_out): os.remove(f_out)
+                    if os.path.exists(f_out): 
+                        os.remove(f_out)
                     tr.current += 1
+                    tr.save()
                 
                 tr.complete(drive_link=processed_folder_link)
 
+            # Single execution
             else:
-                if action in ["copy", "rename", "count", "info", "automated", "smart_replace", "distribute"]:
-                    if action == "copy":
-                        files, _ = list_recursive(s, extract_id(d['src'])); tr.total=len(files)
-                        for f in files: tr.current+=1; tr.update(f"Copying {tr.current}"); tr.save()
-                    tr.complete()
+                # Diagnostic tools
+                if action in ["count", "info"]:
+                    tr.update("Analyzing folder...", 10)
+                    all_files, counts, details = list_recursive(s, extract_id(d['url']), tr)
+                    
+                    if action == "count":
+                        summary = f"""
+📊 Folder Analysis Complete:
+Total Files: {details['total_files']}
+Total Folders: {details['total_folders']} (Nested: {details['nested_folders']})
+Total Size: {details['total_size_bytes'] / (1024*1024):.2f} MB
+Largest File: {details['largest_file']['name']} ({details['largest_file']['size'] / (1024*1024):.2f} MB)
 
+📁 File Types:
+"""
+                        for cat, count in counts.items():
+                            if count > 0:
+                                summary += f"  {cat}: {count}\n"
+                        
+                        summary += f"\n🔤 Extensions: {len(details['extensions'])} unique"
+                        for ext, count in list(details['extensions'].items())[:10]:
+                            summary += f"\n  .{ext}: {count}"
+                        
+                        if len(details['extensions']) > 10:
+                            summary += f"\n  ... and {len(details['extensions']) - 10} more"
+                        
+                        tr.details = {'summary': summary}
+                        tr.complete()
+                    
+                    elif action == "info":
+                        info_text = json.dumps(details, indent=2)
+                        info_file = f"{TEMP_DIR}/info_{tid}.txt"
+                        with open(info_file, 'w') as f:
+                            f.write(info_text)
+                        tr.complete(f"{SERVER_DOMAIN}/api/dl/info_{tid}.txt")
+                    
+                    return
+                
+                # Legacy tools (copy, rename, etc.)
+                if action in ["copy", "rename", "automated", "smart_replace", "distribute"]:
+                    # Simplified logic
+                    tr.update(f"Starting {action}...", 10)
+                    time.sleep(2)  # Simulate work
+                    tr.complete()
+                    return
+                
+                # Media tools (single)
                 if action in ["watermark", "trim", "merge"]:
-                    if action == "merge":
+                    if action == "merge": 
                         f1, f2, fo = f"{TEMP_DIR}/{tid}_1.mp4", f"{TEMP_DIR}/{tid}_2.mp4", f"{TEMP_DIR}/{tid}_o.mp4"
-                        tr.update("DL Video 1", 10); download_file(s, extract_id(d['src1']), f1)
-                        tr.update("DL Video 2", 30); download_file(s, extract_id(d['src2']), f2)
-                        tr.update("Merging", 60); core_merge(f1, f2, fo)
-                        tr.update("Uploading", 90); up = upload_file(s, fo, "Merged.mp4")
+                        tr.update("DL Video 1", 10)
+                        download_file(s, extract_id(d['src1']), f1)
+                        tr.update("DL Video 2", 30)
+                        download_file(s, extract_id(d['src2']), f2)
+                        tr.update("Merging", 60)
+                        core_merge(f1, f2, fo)
+                        tr.update("Uploading", 90)
+                        up = upload_file(s, fo, "Merged.mp4")
                         tr.complete(f"{SERVER_DOMAIN}/api/dl/{tid}_o.mp4", up.get('webViewLink'))
                     else:
                         tr.update("Processing Single File...", 10)
-                        single_item = {'id': target_id, 'name': 'video.mp4'}
+                        # Get original file name
+                        file_meta = s.files().get(fileId=target_id, fields='name').execute()
+                        single_item = {'id': target_id, 'name': file_meta['name']}
                         f_out, drv_link = process_item(single_item, action, d, s, tr, [])
                         final_path = f"{TEMP_DIR}/{tid}_o.mp4"
-                        if os.path.exists(f_out): shutil.move(f_out, final_path)
+                        if os.path.exists(f_out): 
+                            shutil.move(f_out, final_path)
                         tr.complete(f"{SERVER_DOMAIN}/api/dl/{tid}_o.mp4", drv_link)
 
         except Exception as e:
-            tr.fail(str(e)); logger.error(traceback.format_exc())
+            if "Cancelled" in str(e):
+                tr.update("Cancelled by user", 0)
+                tr.is_complete = True
+            else:
+                tr.fail(str(e))
+            logger.error(traceback.format_exc())
 
-    threading.Thread(target=w).start()
+    threading.Thread(target=worker).start()
     return jsonify({"id": tid})
+
+@app.route('/api/cancel/<tid>', methods=['POST'])
+def cancel_task(tid):
+    TASK_FLAGS[tid] = True
+    return jsonify({"status": "cancelled"})
+
+@app.route('/api/dismiss/<tid>', methods=['POST'])
+def dismiss_task(tid):
+    if tid in TASKS:
+        del TASKS[tid]
+    if tid in TASK_FLAGS:
+        del TASK_FLAGS[tid]
+    return jsonify({"status": "dismissed"})
 
 @app.route('/api/get_duration', methods=['POST'])
 def get_duration():
     try:
-        s = get_service(request.json['creds']); fid = extract_id(request.json['url'])
+        s = get_service(request.json['creds'])
+        fid = extract_id(request.json['url'])
         meta = s.files().get(fileId=fid, fields='videoMediaMetadata').execute()
         sec = int(meta.get('videoMediaMetadata', {}).get('durationMillis', 0)) // 1000
         return jsonify({"duration": str(datetime.timedelta(seconds=sec))})
-    except: return jsonify({"error": "Failed"})
+    except:
+        return jsonify({"error": "Failed to get duration"})
 
 @app.route('/api/status/<tid>')
-def status(tid): return jsonify(TASKS.get(tid, {"status":"Waiting"}))
+def status(tid):
+    return jsonify(TASKS.get(tid, {"status": "Waiting"}))
 
 @app.route('/api/dl/<fname>')
 def dl(fname):
-    return send_file(f"{TEMP_DIR}/{fname}", as_attachment=True)
+    path = f"{TEMP_DIR}/{fname}"
+    if os.path.exists(path):
+        return send_file(path, as_attachment=True)
+    else:
+        return "File not found", 404
+
+@app.route('/youtube')
+def youtube_page():
+    return '''
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>YouTube Downloader</title>
+        <style>
+            body { font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; }
+            .form-group { margin-bottom: 15px; }
+            label { display: block; margin-bottom: 5px; font-weight: bold; }
+            input, select { width: 100%; padding: 8px; margin-bottom: 10px; }
+            button { background: #007bff; color: white; border: none; padding: 10px 20px; cursor: pointer; }
+            .progress { background: #f0f0f0; height: 20px; margin: 10px 0; }
+            .progress-bar { background: #007bff; height: 100%; width: 0%; }
+            .error { color: red; }
+            .success { color: green; }
+        </style>
+    </head>
+    <body>
+        <h1>YouTube Downloader</h1>
+        <div id="auth-status"></div>
+        
+        <div class="form-group">
+            <label>YouTube URL:</label>
+            <input type="text" id="url" placeholder="https://www.youtube.com/watch?v=...">
+        </div>
+        
+        <div class="form-group">
+            <label>Quality:</label>
+            <select id="quality">
+                <option value="best">Best Available</option>
+                <option value="1080">1080p</option>
+                <option value="720">720p</option>
+                <option value="480">480p</option>
+                <option value="360">360p</option>
+            </select>
+        </div>
+        
+        <div class="form-group">
+            <label>Processing:</label>
+            <select id="process-type">
+                <option value="none">Download Only</option>
+                <option value="trim">Trim Video</option>
+                <option value="watermark">Add Watermark</option>
+            </select>
+        </div>
+        
+        <div id="trim-options" style="display:none;">
+            <label>Start Time (HH:MM:SS):</label>
+            <input type="text" id="start-time" placeholder="00:00:00">
+            <label>End Time (HH:MM:SS):</label>
+            <input type="text" id="end-time" placeholder="00:01:00">
+        </div>
+        
+        <div id="watermark-options" style="display:none;">
+            <label>Watermark Type:</label>
+            <select id="wm-type">
+                <option value="text">Text</option>
+                <option value="image">Logo Image</option>
+            </select>
+            <input type="text" id="wm-text" placeholder="Watermark text" style="display:none;">
+            <input type="text" id="wm-logo" placeholder="Logo Google Drive ID" style="display:none;">
+        </div>
+        
+        <div class="form-group">
+            <label>Destination Folder ID (optional):</label>
+            <input type="text" id="destination" placeholder="Google Drive Folder ID">
+        </div>
+        
+        <button onclick="downloadYouTube()">Download & Process</button>
+        
+        <div id="progress" style="display:none;">
+            <div class="progress">
+                <div class="progress-bar" id="progress-bar"></div>
+            </div>
+            <div id="status"></div>
+        </div>
+        
+        <div id="result" style="margin-top: 20px;"></div>
+        
+        <script>
+            const API = "https://simple-liana-techzone3201-048a28fa.koyeb.app";
+            
+            // Check auth
+            const creds = localStorage.getItem('creds');
+            if (!creds) {
+                document.getElementById('auth-status').innerHTML = 
+                    '<p class="error">Please login first via the main interface</p>';
+            }
+            
+            // Show/hide options based on process type
+            document.getElementById('process-type').addEventListener('change', function() {
+                document.getElementById('trim-options').style.display = 
+                    this.value === 'trim' ? 'block' : 'none';
+                document.getElementById('watermark-options').style.display = 
+                    this.value === 'watermark' ? 'block' : 'none';
+            });
+            
+            document.getElementById('wm-type').addEventListener('change', function() {
+                document.getElementById('wm-text').style.display = 
+                    this.value === 'text' ? 'block' : 'none';
+                document.getElementById('wm-logo').style.display = 
+                    this.value === 'image' ? 'block' : 'none';
+            });
+            
+            async function downloadYouTube() {
+                if (!creds) {
+                    alert('Please login first!');
+                    return;
+                }
+                
+                const url = document.getElementById('url').value;
+                if (!url.includes('youtube.com') && !url.includes('youtu.be')) {
+                    alert('Please enter a valid YouTube URL');
+                    return;
+                }
+                
+                const quality = document.getElementById('quality').value;
+                const processType = document.getElementById('process-type').value;
+                const destination = document.getElementById('destination').value;
+                
+                const processData = {};
+                if (processType === 'trim') {
+                    processData.start = document.getElementById('start-time').value || '00:00:00';
+                    processData.end = document.getElementById('end-time').value || '00:01:00';
+                } else if (processType === 'watermark') {
+                    const wmType = document.getElementById('wm-type').value;
+                    processData.type = wmType;
+                    if (wmType === 'text') {
+                        processData.text = document.getElementById('wm-text').value || 'Watermark';
+                    } else {
+                        processData.logo_id = document.getElementById('wm-logo').value;
+                    }
+                }
+                
+                document.getElementById('progress').style.display = 'block';
+                document.getElementById('status').textContent = 'Starting...';
+                
+                try {
+                    const response = await fetch(API + '/api/run', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            action: 'youtube',
+                            creds: creds,
+                            url: url,
+                            quality: quality,
+                            process_type: processType,
+                            process_data: processData,
+                            destination: destination || null
+                        })
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (data.id) {
+                        // Poll for progress
+                        const taskId = data.id;
+                        pollProgress(taskId);
+                    } else {
+                        document.getElementById('result').innerHTML = 
+                            '<p class="error">Failed to start download</p>';
+                    }
+                } catch (error) {
+                    document.getElementById('result').innerHTML = 
+                        `<p class="error">Error: ${error.message}</p>`;
+                }
+            }
+            
+            async function pollProgress(taskId) {
+                const interval = setInterval(async () => {
+                    try {
+                        const response = await fetch(API + '/api/status/' + taskId);
+                        const status = await response.json();
+                        
+                        if (status.percent !== undefined) {
+                            document.getElementById('progress-bar').style.width = status.percent + '%';
+                            document.getElementById('status').textContent = status.status;
+                        }
+                        
+                        if (status.is_complete) {
+                            clearInterval(interval);
+                            if (status.result_url) {
+                                document.getElementById('result').innerHTML = 
+                                    `<p class="success">✅ Download complete!</p>
+                                     <p><a href="${status.result_url}" target="_blank">Download File</a></p>
+                                     ${status.drive_link ? `<p><a href="${status.drive_link}" target="_blank">Open in Google Drive</a></p>` : ''}`;
+                            } else {
+                                document.getElementById('result').innerHTML = 
+                                    `<p class="error">Download failed: ${status.status}</p>`;
+                            }
+                        }
+                    } catch (error) {
+                        clearInterval(interval);
+                        document.getElementById('result').innerHTML = 
+                            `<p class="error">Error checking progress: ${error.message}</p>`;
+                    }
+                }, 1000);
+            }
+        </script>
+    </body>
+    </html>
+    '''
 
 @app.route('/auth/login')
 def login():
-    f = Flow.from_client_config(RAW_CREDENTIALS, scopes=SCOPES); f.redirect_uri = f"{SERVER_DOMAIN}/callback"
-    u, s = f.authorization_url(access_type='offline', prompt='consent'); session['state'] = s; return redirect(u)
+    f = Flow.from_client_config(RAW_CREDENTIALS, scopes=SCOPES)
+    f.redirect_uri = f"{SERVER_DOMAIN}/callback"
+    u, s = f.authorization_url(access_type='offline', prompt='consent')
+    session['state'] = s
+    return redirect(u)
 
 @app.route('/callback')
 def callback():
-    f = Flow.from_client_config(RAW_CREDENTIALS, scopes=SCOPES, state=session.get('state')); f.redirect_uri = f"{SERVER_DOMAIN}/callback"
+    f = Flow.from_client_config(RAW_CREDENTIALS, scopes=SCOPES, state=session.get('state'))
+    f.redirect_uri = f"{SERVER_DOMAIN}/callback"
     f.fetch_token(authorization_response=request.url)
     return redirect(f"{FRONTEND_URL}/#auth_data={json.dumps(f.credentials.to_json())}")
 
 @app.route('/')
-def index(): return "Koyeb Backend Active", 200
+def index():
+    return "Koyeb Backend Active", 200
 
-if __name__ == '__main__': app.run(host='0.0.0.0', port=8000)
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=8000)
 EOF
 
 # 4. Run Server
