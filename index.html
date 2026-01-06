@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TechZoneX Watermark</title>
+    <title>Watermark Tool</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>body{background:#0f172a;color:#fff;font-family:sans-serif}.glass{background:#1e293b;padding:2rem;border-radius:1rem;border:1px solid #334155}input,select{background:#020617;border:1px solid #334155;color:#fff;width:100%;padding:0.5rem;margin-bottom:1rem;border-radius:0.5rem}</style>
 </head>
@@ -23,16 +23,16 @@
         </select>
         
         <div id="txt-in">
-            <label class="text-xs text-gray-400">Text (Use | for new line)</label>
-            <input type="text" id="text" placeholder="@TechZoneX">
+            <label class="text-xs text-gray-400">Text Content</label>
+            <input type="text" id="text" placeholder="This is Test">
         </div>
         
         <div id="img-in" class="hidden">
-            <label class="text-xs text-gray-400">Logo File ID (Drive)</label>
-            <input type="text" id="logo" placeholder="ID of PNG">
+            <label class="text-xs text-gray-400">Logo File ID</label>
+            <input type="text" id="logo" placeholder="Drive ID of PNG">
         </div>
         
-        <button onclick="run()" class="w-full bg-blue-600 py-2 rounded font-bold hover:bg-blue-500">START PROCESS</button>
+        <button onclick="run()" class="w-full bg-blue-600 py-2 rounded font-bold hover:bg-blue-500">START</button>
     </div>
     <div id="mon" class="glass hidden">
         <div class="flex justify-between mb-2"><span id="st">Starting...</span><span id="pc">0%</span></div>
@@ -41,7 +41,7 @@
     </div>
 
     <script>
-        // *** IMPORTANT: This connects Frontend to Backend ***
+        // UPDATE THIS WITH YOUR KOYEB URL
         const API = "https://simple-liana-techzone3201-048a28fa.koyeb.app"; 
 
         function toggle() { 
@@ -56,7 +56,6 @@
                 window.history.replaceState(null,null,' ');
             }
             const c = localStorage.getItem('c');
-            // Login button points to Koyeb Backend to start OAuth flow
             document.getElementById('auth').innerHTML = c ? 
                 `<button onclick="localStorage.removeItem('c');location.reload()" class="text-red-400 text-sm">Logout</button>` : 
                 `<a href="${API}/auth/login" class="bg-green-600 px-3 py-1 rounded text-sm">Login</a>`;
