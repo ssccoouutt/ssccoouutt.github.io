@@ -12,7 +12,7 @@ RUN apt-get update && \
     build-essential \
     libmagic1 \
     file && \
-    # Fix ImageMagick policy to allow text rendering
+    # Fix ImageMagick policy to allow text rendering (Crucial for Watermark)
     if [ -f /etc/ImageMagick-6/policy.xml ]; then \
         sed -i 's/none/read,write/g' /etc/ImageMagick-6/policy.xml; \
     fi && \
@@ -23,11 +23,12 @@ WORKDIR /app
 
 COPY requirements.txt .
 
-# Install dependencies
+# Install Python dependencies
+# --upgrade pip is important for binary wheels
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# Increase timeout for video processing
+# Run Gunicorn with long timeout for video tasks
 CMD ["gunicorn", "app:app", "--bind", "0.0.0.0:8000", "--timeout", "600"]
