@@ -44,7 +44,7 @@ RUN touch /app/cookies/cookies.txt && \
     echo "# Netscape HTTP Cookie File" > /app/cookies/cookies.txt
 
 # ==========================================
-# 4. BACKEND CODE (app.py)
+# 4. BACKEND CODE (app.py) - FIXED VERSION
 # ==========================================
 RUN cat << 'EOF' > app.py
 import os, json, uuid, time, io, sys, logging, traceback, threading, shutil
@@ -103,25 +103,38 @@ MIME_MAP = {'application/pdf':'PDF', 'image/':'Images', 'video/':'Videos', 'audi
 
 # --- COOKIES HANDLER ---
 def load_cookies_from_drive(service):
-    """Download cookies from Google Drive"""
+    """Download cookies from Google Drive using service object"""
     try:
+        if not service:
+            logger.warning("No Google Drive service provided, skipping cookie download")
+            return False
+            
         logger.info("Downloading cookies from Google Drive...")
-        request = service.files().get_media(fileId=YOUTUBE_COOKIES_FILE_ID)
-        cookies_content = io.BytesIO()
-        downloader = MediaIoBaseDownload(cookies_content, request)
-        done = False
-        
-        while not done:
-            status, done = downloader.next_chunk()
-        
-        cookies_content = cookies_content.getvalue().decode('utf-8', errors='ignore')
-        
-        # Save to file
-        with open(YOUTUBE_COOKIES_FILE, 'w', encoding='utf-8') as f:
-            f.write(cookies_content)
-        
-        logger.info(f"Cookies downloaded: {len(cookies_content)} bytes")
-        return True
+        try:
+            request = service.files().get_media(fileId=YOUTUBE_COOKIES_FILE_ID)
+            cookies_content = io.BytesIO()
+            downloader = MediaIoBaseDownload(cookies_content, request)
+            done = False
+            
+            while not done:
+                status, done = downloader.next_chunk()
+            
+            cookies_content = cookies_content.getvalue().decode('utf-8', errors='ignore')
+            
+            # Save to file
+            with open(YOUTUBE_COOKIES_FILE, 'w', encoding='utf-8') as f:
+                f.write(cookies_content)
+            
+            logger.info(f"Cookies downloaded: {len(cookies_content)} bytes")
+            return True
+            
+        except Exception as drive_error:
+            logger.error(f"Failed to download cookies from Drive: {drive_error}")
+            # Check if cookies file already exists
+            if os.path.exists(YOUTUBE_COOKIES_FILE) and os.path.getsize(YOUTUBE_COOKIES_FILE) > 100:
+                logger.info("Using existing cookies file")
+                return True
+            return False
         
     except Exception as e:
         logger.error(f"Failed to load cookies: {e}")
@@ -141,8 +154,7 @@ def get_video_info(url, service=None):
         # Add cookies if available
         if service:
             load_cookies_from_drive(service)
-        
-        if os.path.exists(YOUTUBE_COOKIES_FILE) and os.path.getsize(YOUTUBE_COOKIES_FILE) > 100:
+        elif os.path.exists(YOUTUBE_COOKIES_FILE) and os.path.getsize(YOUTUBE_COOKIES_FILE) > 100:
             ydl_opts['cookiefile'] = YOUTUBE_COOKIES_FILE
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -151,6 +163,9 @@ def get_video_info(url, service=None):
             # Extract available formats
             formats = []
             for f in info.get('formats', []):
+                if not f.get('format_id'):
+                    continue
+                    
                 format_info = {
                     'format_id': f.get('format_id', ''),
                     'ext': f.get('ext', ''),
@@ -193,10 +208,11 @@ def get_video_info(url, service=None):
             ))
             
             # Get best formats
-            best_video = max([f for f in formats if f['type'] in ['video+audio', 'video']], 
-                            key=lambda x: x.get('height', 0), default=None)
-            best_audio = max([f for f in formats if f['type'] == 'audio'], 
-                            key=lambda x: x.get('filesize', 0), default=None)
+            video_formats = [f for f in formats if f['type'] in ['video+audio', 'video']]
+            audio_formats = [f for f in formats if f['type'] == 'audio']
+            
+            best_video = max(video_formats, key=lambda x: x.get('height', 0)) if video_formats else None
+            best_audio = max(audio_formats, key=lambda x: x.get('filesize', 0)) if audio_formats else None
             
             return {
                 'success': True,
@@ -214,6 +230,7 @@ def get_video_info(url, service=None):
             
     except Exception as e:
         logger.error(f"Error getting video info: {e}")
+        traceback.print_exc()
         return {'success': False, 'error': str(e)}
 
 def download_youtube_video(url, format_id, download_dir=TEMP_DIR):
@@ -222,7 +239,7 @@ def download_youtube_video(url, format_id, download_dir=TEMP_DIR):
         ydl_opts = {
             'format': format_id,
             'outtmpl': os.path.join(download_dir, '%(title)s.%(ext)s'),
-            'quiet': True,
+            'quiet': False,
             'no_warnings': True,
             'extract_flat': False,
             'merge_output_format': 'mp4',
@@ -232,6 +249,7 @@ def download_youtube_video(url, format_id, download_dir=TEMP_DIR):
         # Add cookies if available
         if os.path.exists(YOUTUBE_COOKIES_FILE) and os.path.getsize(YOUTUBE_COOKIES_FILE) > 100:
             ydl_opts['cookiefile'] = YOUTUBE_COOKIES_FILE
+            logger.info("Using cookies file for download")
         
         # Check if format is audio only
         with yt_dlp.YoutubeDL({'quiet': True}) as ydl_temp:
@@ -245,12 +263,14 @@ def download_youtube_video(url, format_id, download_dir=TEMP_DIR):
                             'preferredcodec': 'mp3',
                             'preferredquality': '192',
                         })
+                        logger.info(f"Audio format detected: {format_id}")
                     else:
                         # Video - ensure mp4 output
                         ydl_opts['postprocessors'].append({
                             'key': 'FFmpegVideoConvertor',
                             'preferedformat': 'mp4',
                         })
+                        logger.info(f"Video format detected: {format_id}")
                     break
         
         logger.info(f"Downloading with format: {format_id}")
@@ -259,15 +279,26 @@ def download_youtube_video(url, format_id, download_dir=TEMP_DIR):
             info = ydl.extract_info(url, download=True)
             downloaded_file = ydl.prepare_filename(info)
             
+            # Handle post-processing filename changes
+            if ydl_opts['postprocessors'] and ydl_opts['postprocessors'][0].get('key') == 'FFmpegExtractAudio':
+                # For audio downloads, the filename changes
+                downloaded_file = downloaded_file.rsplit('.', 1)[0] + '.mp3'
+            
             # Ensure correct extension
             if not os.path.exists(downloaded_file):
                 # Try to find the actual file
                 base_name = downloaded_file.rsplit('.', 1)[0]
-                for ext in ['.mp4', '.mkv', '.webm', '.mp3', '.m4a']:
-                    if os.path.exists(base_name + ext):
-                        downloaded_file = base_name + ext
+                for ext in ['.mp4', '.mkv', '.webm', '.mp3', '.m4a', '.flv', '.avi']:
+                    test_path = base_name + ext
+                    if os.path.exists(test_path):
+                        downloaded_file = test_path
+                        logger.info(f"Found file: {test_path}")
                         break
             
+            if not os.path.exists(downloaded_file):
+                raise Exception(f"Downloaded file not found: {downloaded_file}")
+            
+            logger.info(f"Download successful: {downloaded_file}")
             return {
                 'success': True,
                 'file_path': downloaded_file,
@@ -278,6 +309,7 @@ def download_youtube_video(url, format_id, download_dir=TEMP_DIR):
             
     except Exception as e:
         logger.error(f"YouTube download error: {e}")
+        traceback.print_exc()
         return {'success': False, 'error': str(e)}
 
 # --- PROGRESS TRACKER ---
@@ -324,10 +356,15 @@ class ProgressTracker:
 
 # --- GOOGLE DRIVE HELPERS ---
 def get_service(creds):
-    c = Credentials.from_authorized_user_info(json.loads(creds), SCOPES)
-    if c.expired and c.refresh_token: 
-        c.refresh(Request())
-    return build("drive", "v3", credentials=c)
+    try:
+        creds_dict = json.loads(creds)
+        c = Credentials.from_authorized_user_info(creds_dict, SCOPES)
+        if c.expired and c.refresh_token: 
+            c.refresh(Request())
+        return build("drive", "v3", credentials=c)
+    except Exception as e:
+        logger.error(f"Error creating Drive service: {e}")
+        raise
 
 def extract_id(url):
     if not url: return None
@@ -338,14 +375,19 @@ def extract_id(url):
     return url
 
 def upload_file(service, path, name, parent=None):
-    meta = {'name': name}
-    if parent: meta['parents'] = [parent]
-    
-    # Detect mime type
-    mime_type = mimetypes.guess_type(path)[0] or 'application/octet-stream'
-    media = MediaFileUpload(path, mimetype=mime_type, resumable=True)
-    f = service.files().create(body=meta, media_body=media, fields='id, webViewLink').execute()
-    return f
+    try:
+        meta = {'name': name}
+        if parent: meta['parents'] = [parent]
+        
+        # Detect mime type
+        mime_type = mimetypes.guess_type(path)[0] or 'application/octet-stream'
+        media = MediaFileUpload(path, mimetype=mime_type, resumable=True)
+        f = service.files().create(body=meta, media_body=media, fields='id, webViewLink').execute()
+        logger.info(f"File uploaded to Drive: {name} (ID: {f.get('id')})")
+        return f
+    except Exception as e:
+        logger.error(f"Upload error: {e}")
+        raise
 
 # --- API ENDPOINTS ---
 @app.route('/api/youtube/info', methods=['POST'])
@@ -356,10 +398,16 @@ def youtube_info():
         url = data.get('url')
         creds = data.get('creds')
         
-        if not url or not creds:
-            return jsonify({'success': False, 'error': 'Missing URL or credentials'})
+        if not url:
+            return jsonify({'success': False, 'error': 'Missing URL'})
         
-        service = get_service(creds)
+        service = None
+        if creds:
+            try:
+                service = get_service(creds)
+            except Exception as e:
+                logger.warning(f"Could not create Drive service, continuing without cookies: {e}")
+        
         result = get_video_info(url, service)
         
         if result['success']:
@@ -372,7 +420,7 @@ def youtube_info():
             # Simplify formats for frontend
             simplified_formats = []
             for fmt in result['formats']:
-                if fmt['type'] == 'video+audio':
+                if fmt['type'] in ['video+audio', 'video']:
                     simplified_formats.append({
                         'id': fmt['format_id'],
                         'name': fmt['display_name'],
@@ -385,6 +433,9 @@ def youtube_info():
                         'type': 'audio'
                     })
             
+            best_video_id = result.get('best_video', {}).get('format_id', '')
+            best_audio_id = result.get('best_audio', {}).get('format_id', '')
+            
             return jsonify({
                 'success': True,
                 'title': result['title'],
@@ -392,14 +443,16 @@ def youtube_info():
                 'thumbnail': result['thumbnail'],
                 'uploader': result['uploader'],
                 'formats': simplified_formats,
-                'best_video': result.get('best_video', {}).get('format_id', ''),
-                'best_audio': result.get('best_audio', {}).get('format_id', '')
+                'best_video': best_video_id,
+                'best_audio': best_audio_id,
+                'video_id': video_id
             })
         else:
             return jsonify(result)
             
     except Exception as e:
         logger.error(f"Error in youtube_info: {e}")
+        traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)})
 
 @app.route('/api/youtube/download', methods=['POST'])
@@ -411,8 +464,8 @@ def youtube_download():
     destination = data.get('destination')
     creds = data.get('creds')
     
-    if not url or not format_id or not creds:
-        return jsonify({'success': False, 'error': 'Missing parameters'})
+    if not url or not format_id:
+        return jsonify({'success': False, 'error': 'Missing URL or format ID'})
     
     task_id = str(uuid.uuid4())[:8]
     
@@ -420,51 +473,78 @@ def youtube_download():
         tracker = ProgressTracker(task_id, "YouTube Download")
         try:
             tracker.update("Initializing...", 5)
-            service = get_service(creds)
+            
+            service = None
+            if creds:
+                try:
+                    service = get_service(creds)
+                    tracker.update("Connected to Google Drive", 10)
+                except Exception as e:
+                    logger.warning(f"Drive service error: {e}")
+                    tracker.update("Google Drive not available, downloading locally only", 10)
             
             # Get video info first
-            tracker.update("Fetching video information...", 10)
+            tracker.update("Fetching video information...", 20)
             video_info = get_video_info(url, service)
             if not video_info['success']:
                 raise Exception(f"Failed to get video info: {video_info.get('error', 'Unknown error')}")
             
-            tracker.video_info = video_info
+            tracker.video_info = {
+                'title': video_info.get('title', ''),
+                'duration': video_info.get('duration', 0),
+                'uploader': video_info.get('uploader', '')
+            }
             
             # Download the video
-            tracker.update(f"Downloading {format_id}...", 30)
+            tracker.update(f"Downloading {format_id}...", 40)
             result = download_youtube_video(url, format_id, TEMP_DIR)
             
             if not result['success']:
                 raise Exception(f"Download failed: {result.get('error', 'Unknown error')}")
             
-            # Upload to Google Drive
-            tracker.update("Uploading to Google Drive...", 70)
-            parent_id = extract_id(destination) if destination else None
+            downloaded_path = result['file_path']
             
-            # Get original title for filename
-            original_title = video_info.get('title', 'YouTube_Video')
-            safe_title = re.sub(r'[^\w\s-]', '', original_title).strip()[:100]
-            
-            # Determine file extension
-            file_path = result['file_path']
-            ext = os.path.splitext(file_path)[1] or '.mp4'
-            upload_name = f"{safe_title}{ext}"
-            
-            uploaded = upload_file(service, file_path, upload_name, parent_id)
+            if service and creds:
+                # Upload to Google Drive if service is available
+                tracker.update("Uploading to Google Drive...", 70)
+                parent_id = extract_id(destination) if destination else None
+                
+                # Get original title for filename
+                original_title = video_info.get('title', 'YouTube_Video')
+                safe_title = re.sub(r'[^\w\s-]', '', original_title).strip()[:100]
+                
+                # Determine file extension
+                ext = os.path.splitext(downloaded_path)[1] or '.mp4'
+                upload_name = f"{safe_title}{ext}"
+                
+                try:
+                    uploaded = upload_file(service, downloaded_path, upload_name, parent_id)
+                    drive_link = uploaded.get('webViewLink')
+                    tracker.update("Upload complete", 90)
+                except Exception as upload_error:
+                    logger.error(f"Upload failed: {upload_error}")
+                    drive_link = None
+                    tracker.update("Google Drive upload failed, providing local download", 90)
+            else:
+                drive_link = None
+                tracker.update("Skipping Google Drive upload", 90)
             
             # Create local download link
-            local_filename = os.path.basename(file_path)
+            local_filename = os.path.basename(downloaded_path)
             local_path = os.path.join(TEMP_DIR, local_filename)
-            if os.path.exists(file_path) and file_path != local_path:
-                shutil.move(file_path, local_path)
+            
+            # Ensure file is in TEMP_DIR
+            if downloaded_path != local_path and os.path.exists(downloaded_path):
+                shutil.move(downloaded_path, local_path)
             
             tracker.complete(
                 url=f"{SERVER_DOMAIN}/api/dl/{local_filename}",
-                drive_link=uploaded.get('webViewLink')
+                drive_link=drive_link
             )
             
         except Exception as e:
             tracker.fail(str(e))
+            traceback.print_exc()
     
     threading.Thread(target=worker).start()
     return jsonify({'success': True, 'task_id': task_id})
@@ -545,26 +625,56 @@ def preview_file(filename):
 # --- AUTH ENDPOINTS ---
 @app.route('/auth/login')
 def login():
-    flow = Flow.from_client_config(RAW_CREDENTIALS, scopes=SCOPES)
-    flow.redirect_uri = f"{SERVER_DOMAIN}/callback"
-    auth_url, state = flow.authorization_url(access_type='offline', prompt='consent')
-    session['state'] = state
-    return redirect(auth_url)
+    try:
+        flow = Flow.from_client_config(RAW_CREDENTIALS, scopes=SCOPES)
+        flow.redirect_uri = f"{SERVER_DOMAIN}/callback"
+        auth_url, state = flow.authorization_url(access_type='offline', prompt='consent')
+        session['state'] = state
+        return redirect(auth_url)
+    except Exception as e:
+        logger.error(f"Login error: {e}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/callback')
 def callback():
-    flow = Flow.from_client_config(RAW_CREDENTIALS, scopes=SCOPES, state=session.get('state'))
-    flow.redirect_uri = f"{SERVER_DOMAIN}/callback"
-    flow.fetch_token(authorization_response=request.url)
-    return redirect(f"{FRONTEND_URL}/#auth_data={json.dumps(flow.credentials.to_json())}")
+    try:
+        flow = Flow.from_client_config(RAW_CREDENTIALS, scopes=SCOPES, state=session.get('state'))
+        flow.redirect_uri = f"{SERVER_DOMAIN}/callback"
+        flow.fetch_token(authorization_response=request.url)
+        return redirect(f"{FRONTEND_URL}/#auth_data={json.dumps(flow.credentials.to_json())}")
+    except Exception as e:
+        logger.error(f"Callback error: {e}")
+        return f"Authentication error: {e}", 500
 
 @app.route('/')
 def index():
-    return "TechZoneX Backend API - YouTube Downloader", 200
+    return jsonify({
+        'status': 'TechZoneX Backend API - YouTube Downloader',
+        'version': '2.0',
+        'endpoints': [
+            '/api/youtube/info - Get YouTube video info',
+            '/api/youtube/download - Download YouTube video',
+            '/auth/login - Google Drive authentication'
+        ]
+    })
+
+@app.route('/health')
+def health_check():
+    return jsonify({'status': 'healthy', 'timestamp': datetime.datetime.now().isoformat()})
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8000)
+    # Create cookies directory if it doesn't exist
+    if not os.path.exists(COOKIES_DIR):
+        os.makedirs(COOKIES_DIR)
+    
+    # Initialize cookies file if it doesn't exist
+    if not os.path.exists(YOUTUBE_COOKIES_FILE):
+        with open(YOUTUBE_COOKIES_FILE, 'w') as f:
+            f.write("# Netscape HTTP Cookie File\n")
+    
+    logger.info("TechZoneX YouTube Downloader starting...")
+    app.run(host='0.0.0.0', port=8000, debug=False)
 EOF
 
 # 5. Run Server
-CMD ["gunicorn", "app:app", "--bind", "0.0.0.0:8000", "--timeout", "1200", "--workers", "1", "--threads", "4"]
+CMD ["gunicorn", "app:app", "--bind", "0.0.0.0:8000", "--timeout", "1200", "--workers", "2", "--threads", "4", "--access-logfile", "-"]
