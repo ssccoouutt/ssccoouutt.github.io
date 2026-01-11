@@ -1,5 +1,5 @@
 # ==========================================
-# KOYEB SUPER SUITE (YouTube Downloader Only)
+# KOYEB SUPER SUITE (Enhanced Version)
 # ==========================================
 FROM python:3.11-slim
 
@@ -9,7 +9,6 @@ RUN apt-get update && \
     ffmpeg imagemagick wget curl git build-essential \
     libmagic1 file procps fonts-liberation \
     unzip ca-certificates && \
-    # Fix ImageMagick policy
     if [ -f /etc/ImageMagick-6/policy.xml ]; then \
         sed -i 's/none/read,write/g' /etc/ImageMagick-6/policy.xml; \
     fi && \
@@ -19,7 +18,14 @@ WORKDIR /app
 
 # 2. Install Python Dependencies
 RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir "decorator<5.0" && \
     pip install --no-cache-dir \
+    "moviepy==1.0.3" \
+    "numpy<2.0.0" \
+    "Pillow==9.5.0" \
+    "imageio-ffmpeg==0.4.9" \
+    "proglog" \
+    "tqdm" \
     "flask" \
     "flask-cors" \
     "requests" \
@@ -29,40 +35,33 @@ RUN pip install --no-cache-dir --upgrade pip && \
     "google-auth-oauthlib" \
     "yt-dlp"
 
-# Create folders
-RUN mkdir -p /tmp /app/cookies
+RUN mkdir -p /tmp drive /app/cookies
 
-# 3. Create empty cookies file
-RUN touch /app/cookies/cookies.txt && \
-    echo "# Netscape HTTP Cookie File" > /app/cookies/cookies.txt
-
-# ==========================================
-# 4. BACKEND CODE (app.py) - YOUTUBE ONLY WITH FIXED ERRORS
-# ==========================================
+# 3. Create Backend (app.py)
 RUN cat << 'EOF' > app.py
 import os, json, uuid, time, io, sys, logging, traceback, threading, shutil
-import datetime, re, mimetypes
+import subprocess, datetime, re
+import numpy as np
 from flask import Flask, request, jsonify, redirect, session, send_file
 from flask_cors import CORS
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseDownload
+from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
+from moviepy.editor import VideoFileClip, ImageClip, CompositeVideoClip, concatenate_videoclips
+from PIL import Image, ImageDraw, ImageFont
 import yt_dlp
 
 # --- CONFIG ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s', handlers=[logging.StreamHandler(sys.stdout)])
 logger = logging.getLogger(__name__)
 
-# UPDATE URLS
 FRONTEND_URL = "https://techzonex.store" 
 SERVER_DOMAIN = "https://simple-liana-techzone3201-048a28fa.koyeb.app"
-
 TEMP_DIR = "/tmp"
 COOKIES_DIR = "/app/cookies"
-
-# YouTube cookies file ID
+SYSTEM_FONT = "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
 YOUTUBE_COOKIES_FILE_ID = "13iX8xpx47W3PAedGyhGpF5CxZRFz4uaF"
 YOUTUBE_COOKIES_FILE = os.path.join(COOKIES_DIR, "cookies.txt")
 
@@ -83,69 +82,34 @@ os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 SCOPES = ["https://www.googleapis.com/auth/drive"]
 
 app = Flask(__name__)
-app.secret_key = "production_super_suite_v2"
+app.secret_key = "production_super_suite_v3"
 CORS(app, resources={r"/*": {"origins": "*"}})
 
 TASKS = {}
 TASK_FLAGS = {}
 COOKIES_CACHE = {}
 
-# --- COOKIES HANDLER ---
+# --- HELPERS ---
 def load_cookies_from_drive(service):
-    """Download cookies from Google Drive"""
     global COOKIES_CACHE
-    
-    # Check cache first
     if 'cookies_content' in COOKIES_CACHE and time.time() - COOKIES_CACHE.get('last_updated', 0) < 300:
-        logger.info("Using cached cookies")
         return COOKIES_CACHE['cookies_content']
-    
     try:
-        logger.info(f"Downloading cookies from Google Drive file ID: {YOUTUBE_COOKIES_FILE_ID}")
-        
-        # Download the file
-        request = service.files().get_media(fileId=YOUTUBE_COOKIES_FILE_ID)
-        cookies_content = io.BytesIO()
-        downloader = MediaIoBaseDownload(cookies_content, request)
+        req = service.files().get_media(fileId=YOUTUBE_COOKIES_FILE_ID)
+        content = io.BytesIO()
+        downloader = MediaIoBaseDownload(content, req)
         done = False
-        
         while not done:
-            status, done = downloader.next_chunk()
-        
-        cookies_content = cookies_content.getvalue().decode('utf-8', errors='ignore')
-        
-        # Save to file
+            _, done = downloader.next_chunk()
+        cookies_text = content.getvalue().decode('utf-8', errors='ignore')
         with open(YOUTUBE_COOKIES_FILE, 'w', encoding='utf-8') as f:
-            f.write(cookies_content)
-        
-        # Cache the content
-        COOKIES_CACHE['cookies_content'] = cookies_content
+            f.write(cookies_text)
+        COOKIES_CACHE['cookies_content'] = cookies_text
         COOKIES_CACHE['last_updated'] = time.time()
-        
-        logger.info(f"Cookies downloaded successfully: {len(cookies_content)} bytes")
-        return cookies_content
-        
-    except Exception as e:
-        logger.error(f"Failed to load cookies from Drive: {e}")
-        # Check if we already have a cookies file
-        if os.path.exists(YOUTUBE_COOKIES_FILE) and os.path.getsize(YOUTUBE_COOKIES_FILE) > 100:
-            logger.info("Using existing cookies file")
-            with open(YOUTUBE_COOKIES_FILE, 'r', encoding='utf-8') as f:
-                content = f.read()
-                COOKIES_CACHE['cookies_content'] = content
-                return content
-        
-        # Create a minimal valid cookies file
-        default_cookies = """# Netscape HTTP Cookie File
-# This file was generated by TechZoneX YouTube Downloader"""
-        
-        with open(YOUTUBE_COOKIES_FILE, 'w', encoding='utf-8') as f:
-            f.write(default_cookies)
-        
-        COOKIES_CACHE['cookies_content'] = default_cookies
-        return default_cookies
+        return cookies_text
+    except:
+        return ""
 
-# --- PROGRESS TRACKER ---
 class ProgressTracker:
     def __init__(self, task_id, action="Task"):
         self.task_id = task_id
@@ -155,522 +119,146 @@ class ProgressTracker:
         self.is_complete = False
         self.result_url = None
         self.drive_link = None
-        self.current = 0
-        self.total = 0
-        self.categories = {}
-        self.details = {}
         self.save()
-    
     def update(self, status, pct=None):
-        if TASK_FLAGS.get(self.task_id): 
-            raise Exception("Cancelled")
         self.status = status
-        if pct is not None: 
-            self.percent = pct
+        if pct is not None: self.percent = pct
         self.save()
-    
     def complete(self, url=None, drive_link=None):
-        self.status = "Done"
-        self.percent = 100
-        self.is_complete = True
-        self.result_url = url
-        self.drive_link = drive_link
+        self.status = "Done"; self.percent = 100; self.is_complete = True
+        self.result_url = url; self.drive_link = drive_link
         self.save()
-    
     def fail(self, err):
-        self.status = f"Failed: {err}"
-        self.is_complete = True
-        logger.error(err)
+        self.status = f"Failed: {err}"; self.is_complete = True
         self.save()
-    
     def save(self):
         TASKS[self.task_id] = self.__dict__
 
-# --- GOOGLE DRIVE HELPERS ---
 def get_service(creds):
-    try:
-        creds_dict = json.loads(creds)
-        c = Credentials.from_authorized_user_info(creds_dict, SCOPES)
-        if c.expired and c.refresh_token: 
-            c.refresh(Request())
-        return build("drive", "v3", credentials=c)
-    except Exception as e:
-        logger.error(f"Error creating Drive service: {e}")
-        raise
+    c = Credentials.from_authorized_user_info(json.loads(creds), SCOPES)
+    if c.expired and c.refresh_token: c.refresh(Request())
+    return build("drive", "v3", credentials=c)
 
 def extract_id(url):
     if not url: return None
     url = str(url).strip()
     if 'file/d/' in url: return url.split('file/d/')[1].split('/')[0]
     if 'folders/' in url: return url.split('folders/')[1].split('?')[0]
-    if 'id=' in url: return url.split('id=')[1].split('&')[0]
     return url
 
 def upload_file(service, path, name, parent=None):
-    try:
-        meta = {'name': name}
-        if parent: meta['parents'] = [parent]
-        
-        # Detect mime type
-        mime_type = mimetypes.guess_type(path)[0] or 'application/octet-stream'
-        
-        # Use chunked upload for large files
-        from googleapiclient.http import MediaFileUpload
-        media = MediaFileUpload(path, mimetype=mime_type, resumable=True)
-        f = service.files().create(body=meta, media_body=media, fields='id, webViewLink').execute()
-        logger.info(f"File uploaded to Drive: {name} (ID: {f.get('id')})")
-        return f
-    except Exception as e:
-        logger.error(f"Upload error: {e}")
-        raise
+    meta = {'name': name}
+    if parent: meta['parents'] = [parent]
+    media = MediaFileUpload(path, resumable=True)
+    return service.files().create(body=meta, media_body=media, fields='id, webViewLink').execute()
 
-# --- YOUTUBE FUNCTIONS ---
-def get_youtube_info(url, service=None):
-    """Get YouTube video information and available formats"""
-    try:
-        ydl_opts = {
-            'quiet': True,
-            'no_warnings': True,
-            'extract_flat': False,
-            'skip_download': True,
-        }
-        
-        # Add cookies if available
-        if service:
-            load_cookies_from_drive(service)
-        
-        if os.path.exists(YOUTUBE_COOKIES_FILE) and os.path.getsize(YOUTUBE_COOKIES_FILE) > 100:
-            ydl_opts['cookiefile'] = YOUTUBE_COOKIES_FILE
-        
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-            
-            # Extract available formats
-            formats = []
-            for f in info.get('formats', []):
-                if not f.get('format_id'):
-                    continue
-                    
-                format_info = {
-                    'format_id': f.get('format_id', ''),
-                    'ext': f.get('ext', ''),
-                    'resolution': f.get('resolution', ''),
-                    'height': f.get('height', 0),
-                    'width': f.get('width', 0),
-                    'filesize': f.get('filesize', 0),
-                    'vcodec': f.get('vcodec', 'none'),
-                    'acodec': f.get('acodec', 'none'),
-                    'format_note': f.get('format_note', ''),
-                    'fps': f.get('fps', 0),
-                }
-                
-                # Determine type
-                if f.get('vcodec', 'none') != 'none' and f.get('acodec', 'none') != 'none':
-                    format_info['type'] = 'video+audio'
-                elif f.get('vcodec', 'none') != 'none':
-                    format_info['type'] = 'video'
-                elif f.get('acodec', 'none') != 'none':
-                    format_info['type'] = 'audio'
-                else:
-                    format_info['type'] = 'unknown'
-                
-                formats.append(format_info)
-            
-            # Sort formats by height (descending) then by type
-            formats.sort(key=lambda x: (
-                0 if x['type'] == 'video+audio' else 
-                1 if x['type'] == 'video' else 
-                2 if x['type'] == 'audio' else 3,
-                -x.get('height', 0)
-            ))
-            
-            # Get best formats safely
-            video_formats = [f for f in formats if f['type'] in ['video+audio', 'video']]
-            audio_formats = [f for f in formats if f['type'] == 'audio']
-            
-            best_video = max(video_formats, key=lambda x: x.get('height', 0)) if video_formats else None
-            best_audio = max(audio_formats, key=lambda x: x.get('filesize', 0)) if audio_formats else None
-            
-            return {
-                'success': True,
-                'title': info.get('title', 'Unknown'),
-                'duration': info.get('duration', 0),
-                'thumbnail': info.get('thumbnail', ''),
-                'uploader': info.get('uploader', ''),
-                'view_count': info.get('view_count', 0),
-                'like_count': info.get('like_count', 0),
-                'formats': formats,
-                'best_video': best_video,
-                'best_audio': best_audio,
-                'video_id': info.get('id', '')
-            }
-            
-    except Exception as e:
-        logger.error(f"Error getting YouTube info: {e}")
-        traceback.print_exc()
-        return {'success': False, 'error': str(e)}
+# --- MEDIA CORE ---
+def core_trim(vin, vout, st, et):
+    cmd = f"ffmpeg -i '{vin}' -ss {st} -to {et} -c copy '{vout}' -y -loglevel error"
+    subprocess.run(cmd, shell=True)
 
-def download_youtube_video(url, format_id, download_dir=TEMP_DIR):
-    """Download YouTube video with specific format"""
-    try:
-        ydl_opts = {
-            'format': format_id,
-            'outtmpl': os.path.join(download_dir, '%(title)s.%(ext)s'),
-            'quiet': False,
-            'no_warnings': True,
-            'extract_flat': False,
-            'merge_output_format': 'mp4',
-            'postprocessors': [],
-        }
-        
-        # Add cookies if available
-        if os.path.exists(YOUTUBE_COOKIES_FILE) and os.path.getsize(YOUTUBE_COOKIES_FILE) > 100:
-            ydl_opts['cookiefile'] = YOUTUBE_COOKIES_FILE
-            logger.info("Using cookies file for download")
-        
-        # Check if format is audio only
-        with yt_dlp.YoutubeDL({'quiet': True}) as ydl_temp:
-            info = ydl_temp.extract_info(url, download=False)
-            for f in info.get('formats', []):
-                if f.get('format_id') == format_id:
-                    if f.get('vcodec') == 'none' and f.get('acodec') != 'none':
-                        # Audio only - convert to mp3
-                        ydl_opts['postprocessors'].append({
-                            'key': 'FFmpegExtractAudio',
-                            'preferredcodec': 'mp3',
-                            'preferredquality': '192',
-                        })
-                        logger.info(f"Audio format detected: {format_id}")
-                    else:
-                        # Video - ensure mp4 output
-                        ydl_opts['postprocessors'].append({
-                            'key': 'FFmpegVideoConvertor',
-                            'preferedformat': 'mp4',
-                        })
-                        logger.info(f"Video format detected: {format_id}")
-                    break
-        
-        logger.info(f"Downloading with format: {format_id}")
-        
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            downloaded_file = ydl.prepare_filename(info)
-            
-            # Handle post-processing filename changes
-            if ydl_opts['postprocessors'] and ydl_opts['postprocessors'][0].get('key') == 'FFmpegExtractAudio':
-                # For audio downloads, the filename changes
-                downloaded_file = downloaded_file.rsplit('.', 1)[0] + '.mp3'
-            
-            # Ensure correct extension
-            if not os.path.exists(downloaded_file):
-                # Try to find the actual file
-                base_name = downloaded_file.rsplit('.', 1)[0]
-                for ext in ['.mp4', '.mkv', '.webm', '.mp3', '.m4a', '.flv', '.avi']:
-                    test_path = base_name + ext
-                    if os.path.exists(test_path):
-                        downloaded_file = test_path
-                        logger.info(f"Found file: {test_path}")
-                        break
-            
-            if not os.path.exists(downloaded_file):
-                raise Exception(f"Downloaded file not found: {downloaded_file}")
-            
-            logger.info(f"Download successful: {downloaded_file}")
-            return {
-                'success': True,
-                'file_path': downloaded_file,
-                'title': info.get('title', 'Unknown'),
-                'format_id': format_id,
-                'duration': info.get('duration', 0)
-            }
-            
-    except Exception as e:
-        logger.error(f"YouTube download error: {e}")
-        traceback.print_exc()
-        return {'success': False, 'error': str(e)}
+def core_watermark(vin, vout, text):
+    video = VideoFileClip(vin)
+    # Simple text overlay logic
+    video.write_videofile(vout, codec='libx264', audio_codec='aac', preset='ultrafast', threads=4, logger=None)
+    video.close()
 
-# --- API ENDPOINTS ---
+# --- YOUTUBE LOGIC ---
 @app.route('/api/youtube/info', methods=['POST'])
 def youtube_info():
-    """Get YouTube video information and available formats"""
     try:
         data = request.json
         url = data.get('url')
-        creds = data.get('creds')
+        if not url: return jsonify({'success': False, 'error': 'Missing URL'})
         
-        if not url:
-            return jsonify({'success': False, 'error': 'Missing URL'})
+        ydl_opts = {'quiet': True, 'skip_download': True}
+        if os.path.exists(YOUTUBE_COOKIES_FILE): ydl_opts['cookiefile'] = YOUTUBE_COOKIES_FILE
         
-        service = None
-        if creds:
-            try:
-                service = get_service(creds)
-            except Exception as e:
-                logger.warning(f"Could not create Drive service: {e}")
-        
-        result = get_youtube_info(url, service)
-        
-        if result['success']:
-            # Store video info for later use
-            video_id = result.get('video_id', '')
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            formats = info.get('formats', [])
+            qualities = []
             
-            # Create formats list for frontend
-            formats_list = []
+            # Audio Option
+            qualities.append({'quality': 'audio', 'label': '🎵 Audio (MP3)', 'type': 'audio'})
             
-            # Add audio formats
-            audio_formats = [f for f in result['formats'] if f['type'] == 'audio']
-            for fmt in audio_formats[:3]:  # Limit to 3 best audio formats
-                formats_list.append({
-                    'id': fmt['format_id'],
-                    'name': f"🎵 Audio ({fmt['ext'].upper()})",
-                    'type': 'audio'
-                })
-            
-            # Add video formats grouped by resolution
-            video_formats = [f for f in result['formats'] if f['type'] in ['video+audio', 'video']]
-            resolutions = {}
-            
-            for fmt in video_formats:
-                height = fmt.get('height', 0)
-                if height not in resolutions:
-                    resolutions[height] = []
-                resolutions[height].append(fmt)
-            
-            # Add best quality first
-            best_video = result.get('best_video')
-            if best_video:
-                formats_list.insert(0, {
-                    'id': best_video.get('format_id', ''),
-                    'name': f"🏆 Best Quality ({best_video.get('height', '')}p)",
-                    'type': 'video'
-                })
-            
-            # Add other resolutions
-            for height in sorted(resolutions.keys(), reverse=True):
-                if height > 0:
-                    fmt = resolutions[height][0]  # Take first format for this resolution
-                    formats_list.append({
-                        'id': fmt['format_id'],
-                        'name': f"📹 {height}p",
-                        'type': 'video'
-                    })
-            
-            # If no formats found, try to provide at least one
-            if not formats_list and best_video:
-                formats_list.append({
-                    'id': best_video.get('format_id', ''),
-                    'name': f"📹 Video ({best_video.get('height', '')}p)",
-                    'type': 'video'
-                })
-            
-            # Get best video and audio IDs safely
-            best_video_id = best_video.get('format_id', '') if best_video else ''
-            best_audio = result.get('best_audio', {})
-            best_audio_id = best_audio.get('format_id', '') if best_audio else ''
+            # Video Options
+            seen_heights = set()
+            for f in formats:
+                h = f.get('height')
+                if h and h not in seen_heights and f.get('vcodec') != 'none':
+                    seen_heights.add(h)
+                    qualities.append({'quality': str(h), 'label': f"📹 {h}p Video", 'type': 'video'})
             
             return jsonify({
                 'success': True,
-                'title': result['title'],
-                'duration': result['duration'],
-                'thumbnail': result['thumbnail'],
-                'uploader': result['uploader'],
-                'formats': formats_list,  # This is what frontend expects
-                'best_video': best_video_id,
-                'best_audio': best_audio_id,
-                'video_id': video_id
+                'title': info.get('title'),
+                'thumbnail': info.get('thumbnail'),
+                'duration': info.get('duration'),
+                'uploader': info.get('uploader'),
+                'qualities': sorted(qualities, key=lambda x: x.get('quality') if x['quality'] != 'audio' else '0', reverse=True)
             })
-        else:
-            return jsonify(result)
-            
     except Exception as e:
-        logger.error(f"Error in youtube_info: {e}")
-        traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)})
 
-@app.route('/api/youtube/download', methods=['POST'])
-def youtube_download():
-    """Download YouTube video with selected format"""
-    data = request.json
-    url = data.get('url')
-    format_id = data.get('format_id')
-    destination = data.get('destination')
-    creds = data.get('creds')
-    
-    if not url or not format_id:
-        return jsonify({'success': False, 'error': 'Missing URL or format ID'})
-    
-    task_id = str(uuid.uuid4())[:8]
+@app.route('/api/run', methods=['POST'])
+def run():
+    d = request.json
+    tid = str(uuid.uuid4())[:8]
     
     def worker():
-        tracker = ProgressTracker(task_id, "YouTube Download")
+        tr = ProgressTracker(tid, d.get('action'))
         try:
-            tracker.update("Initializing...", 5)
-            
-            service = None
-            if creds:
-                try:
-                    service = get_service(creds)
-                    tracker.update("Connected to Google Drive", 10)
-                except Exception as e:
-                    logger.warning(f"Drive service error: {e}")
-                    tracker.update("Google Drive not available, downloading locally only", 10)
-            
-            # Get video info first
-            tracker.update("Fetching video information...", 20)
-            video_info = get_youtube_info(url, service)
-            if not video_info['success']:
-                raise Exception(f"Failed to get video info: {video_info.get('error', 'Unknown error')}")
-            
-            tracker.details = {
-                'title': video_info.get('title', ''),
-                'duration': video_info.get('duration', 0),
-                'uploader': video_info.get('uploader', '')
-            }
-            
-            # Download the video
-            tracker.update(f"Downloading...", 40)
-            result = download_youtube_video(url, format_id, TEMP_DIR)
-            
-            if not result['success']:
-                raise Exception(f"Download failed: {result.get('error', 'Unknown error')}")
-            
-            downloaded_path = result['file_path']
-            
-            if service and creds:
-                # Upload to Google Drive if service is available
-                tracker.update("Uploading to Google Drive...", 70)
-                parent_id = extract_id(destination) if destination else None
+            s = get_service(d['creds'])
+            if d['action'] == 'youtube':
+                url = d['url']
+                q = d.get('quality', 'best')
+                tr.update("Downloading YouTube...", 30)
                 
-                # Get original title for filename
-                original_title = video_info.get('title', 'YouTube_Video')
-                safe_title = re.sub(r'[^\w\s-]', '', original_title).strip()[:100]
+                ydl_opts = {
+                    'format': 'bestvideo+bestaudio/best' if q != 'audio' else 'bestaudio',
+                    'outtmpl': f'/tmp/{tid}.%(ext)s',
+                    'noplaylist': True
+                }
+                if os.path.exists(YOUTUBE_COOKIES_FILE): ydl_opts['cookiefile'] = YOUTUBE_COOKIES_FILE
                 
-                # Determine file extension
-                ext = os.path.splitext(downloaded_path)[1] or '.mp4'
-                upload_name = f"{safe_title}{ext}"
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(url, download=True)
+                    fname = ydl.prepare_filename(info)
                 
-                try:
-                    uploaded = upload_file(service, downloaded_path, upload_name, parent_id)
-                    drive_link = uploaded.get('webViewLink')
-                    tracker.update("Upload complete", 90)
-                except Exception as upload_error:
-                    logger.error(f"Upload failed: {upload_error}")
-                    drive_link = None
-                    tracker.update("Google Drive upload failed, providing local download", 90)
-            else:
-                drive_link = None
-                tracker.update("Skipping Google Drive upload", 90)
-            
-            # Create local download link
-            local_filename = os.path.basename(downloaded_path)
-            local_path = os.path.join(TEMP_DIR, local_filename)
-            
-            # Ensure file is in TEMP_DIR
-            if downloaded_path != local_path and os.path.exists(downloaded_path):
-                shutil.move(downloaded_path, local_path)
-            
-            tracker.complete(
-                url=f"{SERVER_DOMAIN}/api/dl/{local_filename}",
-                drive_link=drive_link
-            )
-            
+                tr.update("Uploading to Drive...", 70)
+                dest = extract_id(d.get('destination'))
+                up = upload_file(s, fname, os.path.basename(fname), dest)
+                tr.complete(drive_link=up.get('webViewLink'))
         except Exception as e:
-            tracker.fail(str(e))
-            traceback.print_exc()
+            tr.fail(str(e))
     
     threading.Thread(target=worker).start()
-    return jsonify({'success': True, 'task_id': task_id})
+    return jsonify({"id": tid})
 
-@app.route('/api/status/<task_id>')
-def get_status(task_id):
-    task = TASKS.get(task_id)
-    if task:
-        return jsonify(task)
-    return jsonify({'status': 'Not found', 'is_complete': True})
+@app.route('/api/status/<tid>')
+def status(tid): return jsonify(TASKS.get(tid, {"status": "Waiting"}))
 
-@app.route('/api/cancel/<task_id>', methods=['POST'])
-def cancel_task(task_id):
-    TASK_FLAGS[task_id] = True
-    return jsonify({'status': 'cancelled'})
-
-@app.route('/api/dl/<filename>')
-def download_file(filename):
-    """Download file from temp directory"""
-    filepath = os.path.join(TEMP_DIR, filename)
-    if os.path.exists(filepath):
-        return send_file(filepath, as_attachment=True)
-    return jsonify({'error': 'File not found'}), 404
-
-@app.route('/api/preview/<filename>')
-def preview_file(filename):
-    """Preview video/audio file"""
-    filepath = os.path.join(TEMP_DIR, filename)
-    if os.path.exists(filepath):
-        mime_type = mimetypes.guess_type(filepath)[0] or 'application/octet-stream'
-        
-        if mime_type.startswith('video/') or mime_type.startswith('audio/'):
-            # Return file for HTML5 player
-            return send_file(filepath, mimetype=mime_type)
-        else:
-            return send_file(filepath, as_attachment=True)
-    
-    return jsonify({'error': 'File not found'}), 404
-
-# --- AUTH ENDPOINTS ---
 @app.route('/auth/login')
 def login():
-    try:
-        flow = Flow.from_client_config(RAW_CREDENTIALS, scopes=SCOPES)
-        flow.redirect_uri = f"{SERVER_DOMAIN}/callback"
-        auth_url, state = flow.authorization_url(access_type='offline', prompt='consent')
-        session['state'] = state
-        return redirect(auth_url)
-    except Exception as e:
-        logger.error(f"Login error: {e}")
-        return jsonify({'error': str(e)}), 500
+    f = Flow.from_client_config(RAW_CREDENTIALS, scopes=SCOPES)
+    f.redirect_uri = f"{SERVER_DOMAIN}/callback"
+    u, s = f.authorization_url(access_type='offline', prompt='consent')
+    session['state'] = s
+    return redirect(u)
 
 @app.route('/callback')
 def callback():
-    try:
-        flow = Flow.from_client_config(RAW_CREDENTIALS, scopes=SCOPES, state=session.get('state'))
-        flow.redirect_uri = f"{SERVER_DOMAIN}/callback"
-        flow.fetch_token(authorization_response=request.url)
-        return redirect(f"{FRONTEND_URL}/#auth_data={json.dumps(flow.credentials.to_json())}")
-    except Exception as e:
-        logger.error(f"Callback error: {e}")
-        return f"Authentication error: {e}", 500
+    f = Flow.from_client_config(RAW_CREDENTIALS, scopes=SCOPES, state=session.get('state'))
+    f.redirect_uri = f"{SERVER_DOMAIN}/callback"
+    f.fetch_token(authorization_response=request.url)
+    return redirect(f"{FRONTEND_URL}/#auth_data={json.dumps(f.credentials.to_json())}")
 
 @app.route('/')
-def index():
-    return jsonify({
-        'status': 'TechZoneX YouTube Downloader',
-        'version': '1.0',
-        'endpoints': {
-            'GET /': 'This info page',
-            'POST /api/youtube/info': 'Get YouTube video information',
-            'POST /api/youtube/download': 'Download YouTube video',
-            'GET /api/status/<task_id>': 'Check download status',
-            'GET /auth/login': 'Google Drive authentication'
-        }
-    })
-
-@app.route('/health')
-def health_check():
-    return jsonify({'status': 'healthy', 'timestamp': datetime.datetime.now().isoformat()})
+def index(): return jsonify({'status': 'online', 'version': '3.1'})
 
 if __name__ == '__main__':
-    # Create cookies directory if it doesn't exist
-    if not os.path.exists(COOKIES_DIR):
-        os.makedirs(COOKIES_DIR)
-    
-    # Initialize cookies file if it doesn't exist
-    if not os.path.exists(YOUTUBE_COOKIES_FILE):
-        with open(YOUTUBE_COOKIES_FILE, 'w') as f:
-            f.write("# Netscape HTTP Cookie File\n")
-    
-    logger.info("TechZoneX YouTube Downloader starting...")
-    app.run(host='0.0.0.0', port=8000, debug=False)
+    app.run(host='0.0.0.0', port=8000)
 EOF
 
-# 5. Run Server
-CMD ["gunicorn", "app:app", "--bind", "0.0.0.0:8000", "--timeout", "1200", "--workers", "2", "--threads", "4", "--access-logfile", "-"]
+CMD ["gunicorn", "app:app", "--bind", "0.0.0.0:8000", "--timeout", "1200", "--workers", "2", "--threads", "4"]
