@@ -37,7 +37,7 @@ RUN touch /app/cookies/cookies.txt && \
     echo "# Netscape HTTP Cookie File" > /app/cookies/cookies.txt
 
 # ==========================================
-# 4. BACKEND CODE (app.py) - YOUTUBE ONLY
+# 4. BACKEND CODE (app.py) - YOUTUBE ONLY WITH FIXED ERRORS
 # ==========================================
 RUN cat << 'EOF' > app.py
 import os, json, uuid, time, io, sys, logging, traceback, threading, shutil
@@ -111,8 +111,6 @@ def load_cookies_from_drive(service):
         
         while not done:
             status, done = downloader.next_chunk()
-            if status:
-                logger.info(f"Downloading cookies: {int(status.progress() * 100)}%")
         
         cookies_content = cookies_content.getvalue().decode('utf-8', errors='ignore')
         
@@ -286,7 +284,7 @@ def get_youtube_info(url, service=None):
                 -x.get('height', 0)
             ))
             
-            # Get best formats
+            # Get best formats safely
             video_formats = [f for f in formats if f['type'] in ['video+audio', 'video']]
             audio_formats = [f for f in formats if f['type'] == 'audio']
             
@@ -439,11 +437,11 @@ def youtube_info():
                 resolutions[height].append(fmt)
             
             # Add best quality first
-            if result.get('best_video'):
-                best = result['best_video']
+            best_video = result.get('best_video')
+            if best_video:
                 formats_list.insert(0, {
-                    'id': best['format_id'],
-                    'name': f"🏆 Best Quality ({best.get('height', '')}p)",
+                    'id': best_video.get('format_id', ''),
+                    'name': f"🏆 Best Quality ({best_video.get('height', '')}p)",
                     'type': 'video'
                 })
             
@@ -458,13 +456,17 @@ def youtube_info():
                     })
             
             # If no formats found, try to provide at least one
-            if not formats_list and result.get('best_video'):
-                best = result['best_video']
+            if not formats_list and best_video:
                 formats_list.append({
-                    'id': best['format_id'],
-                    'name': f"📹 Video ({best.get('height', '')}p)",
+                    'id': best_video.get('format_id', ''),
+                    'name': f"📹 Video ({best_video.get('height', '')}p)",
                     'type': 'video'
                 })
+            
+            # Get best video and audio IDs safely
+            best_video_id = best_video.get('format_id', '') if best_video else ''
+            best_audio = result.get('best_audio', {})
+            best_audio_id = best_audio.get('format_id', '') if best_audio else ''
             
             return jsonify({
                 'success': True,
@@ -473,8 +475,8 @@ def youtube_info():
                 'thumbnail': result['thumbnail'],
                 'uploader': result['uploader'],
                 'formats': formats_list,  # This is what frontend expects
-                'best_video': result.get('best_video', {}).get('format_id', ''),
-                'best_audio': result.get('best_audio', {}).get('format_id', ''),
+                'best_video': best_video_id,
+                'best_audio': best_audio_id,
                 'video_id': video_id
             })
         else:
