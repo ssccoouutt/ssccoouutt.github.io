@@ -3,54 +3,45 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>YouTube Downloader - TechZoneX</title>
+    <title>YouTube Pro - TechZoneX</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
 </head>
-<body class="bg-gray-950 text-slate-200 p-6">
-    <div class="max-w-4xl mx-auto space-y-6">
+<body class="bg-gray-950 text-white p-5">
+    <div class="max-w-3xl mx-auto space-y-6">
         <div class="bg-gray-900 p-6 rounded-xl border border-gray-800">
-            <h1 class="text-xl font-bold mb-4">YouTube to Drive</h1>
+            <h1 class="text-2xl font-bold mb-4">YouTube Downloader</h1>
             <div class="flex gap-2">
-                <input type="text" id="yt-url" placeholder="Paste YouTube Link" class="flex-1 bg-gray-950 border border-gray-700 p-3 rounded-lg">
-                <button onclick="analyze()" class="bg-blue-600 px-6 py-3 rounded-lg font-bold">Analyze</button>
+                <input type="text" id="yt-url" placeholder="Paste YouTube Link" class="flex-1 bg-black border border-gray-700 p-3 rounded-lg">
+                <button onclick="analyzeVideo()" class="bg-blue-600 px-6 py-3 rounded-lg font-bold">Analyze</button>
             </div>
         </div>
 
-        <div id="info-card" class="hidden bg-gray-900 p-6 rounded-xl border border-gray-800 space-y-4">
+        <div id="video-card" class="hidden bg-gray-900 p-6 rounded-xl border border-gray-800 space-y-4">
             <div class="flex gap-4">
-                <img id="thumb" class="w-32 rounded-lg">
-                <div>
-                    <h2 id="title" class="font-bold text-lg"></h2>
-                    <p id="meta" class="text-sm text-gray-500"></p>
-                </div>
+                <img id="v-thumb" class="w-40 rounded-lg shadow-lg">
+                <h2 id="v-title" class="font-bold text-lg"></h2>
             </div>
-            
-            <div>
-                <label class="block text-sm font-bold mb-2">Select Quality</label>
-                <div id="qualities" class="grid grid-cols-2 md:grid-cols-3 gap-2"></div>
-            </div>
-
-            <input type="text" id="dest-id" placeholder="Google Drive Folder ID (Optional)" class="w-full bg-gray-950 border border-gray-700 p-3 rounded-lg">
-            <button onclick="startDownload()" class="w-full bg-green-600 py-4 rounded-lg font-bold">Start Download</button>
+            <div id="quality-list" class="grid grid-cols-2 md:grid-cols-3 gap-2"></div>
+            <input type="text" id="folder-id" placeholder="Google Drive Folder ID (Optional)" class="w-full bg-black border border-gray-700 p-3 rounded-lg">
+            <button id="dl-btn" onclick="startDownload()" class="w-full bg-green-600 py-4 rounded-lg font-bold text-lg">Start Upload to Drive</button>
         </div>
 
-        <div id="status-card" class="hidden bg-gray-900 p-6 rounded-xl border border-gray-800">
-            <div id="status-text" class="text-sm font-bold mb-2">Initializing...</div>
-            <div class="w-full bg-gray-800 h-2 rounded-full overflow-hidden">
-                <div id="status-bar" class="bg-blue-500 h-full w-0 transition-all"></div>
+        <div id="progress-card" class="hidden bg-gray-900 p-6 rounded-xl border border-gray-800 text-center">
+            <p id="p-status" class="mb-2 font-bold text-blue-400"></p>
+            <div class="w-full bg-gray-800 h-3 rounded-full overflow-hidden">
+                <div id="p-bar" class="bg-blue-500 h-full w-0 transition-all"></div>
             </div>
         </div>
     </div>
 
     <script>
         const API = "https://simple-liana-techzone3201-048a28fa.koyeb.app";
-        let selectedQuality = null;
+        let selQ = null;
 
-        async function analyze() {
+        async function analyzeVideo() {
             const url = document.getElementById('yt-url').value;
             const creds = localStorage.getItem('creds');
-            if(!creds) return alert("Login on main page first");
+            if(!creds) return alert("Login on the main page first!");
 
             const res = await fetch(`${API}/api/youtube/info`, {
                 method: 'POST',
@@ -60,56 +51,52 @@
             const data = await res.json();
 
             if(data.success) {
-                document.getElementById('info-card').classList.remove('hidden');
-                document.getElementById('title').innerText = data.title;
-                document.getElementById('thumb').src = data.thumbnail;
-                document.getElementById('meta').innerText = `${data.uploader} • ${Math.floor(data.duration/60)}m`;
+                document.getElementById('video-card').classList.remove('hidden');
+                document.getElementById('v-title').innerText = data.title;
+                document.getElementById('v-thumb').src = data.thumbnail;
                 
-                const qContainer = document.getElementById('qualities');
-                qContainer.innerHTML = "";
-                // FIX: Use data.qualities instead of data.formats
+                const container = document.getElementById('quality-list');
+                container.innerHTML = "";
                 data.qualities.forEach(q => {
                     const btn = document.createElement('button');
-                    btn.className = "p-2 bg-gray-800 rounded border border-gray-700 text-xs hover:bg-gray-700";
+                    btn.className = "p-2 bg-gray-800 rounded border border-gray-700 hover:bg-gray-700 text-sm";
                     btn.innerText = q.label;
                     btn.onclick = () => {
-                        selectedQuality = q.quality;
-                        Array.from(qContainer.children).forEach(c => c.classList.remove('border-blue-500'));
-                        btn.classList.add('border-blue-500');
+                        selQ = q.quality;
+                        Array.from(container.children).forEach(b => b.classList.remove('border-blue-500', 'bg-blue-900/30'));
+                        btn.classList.add('border-blue-500', 'bg-blue-900/30');
                     };
-                    qContainer.appendChild(btn);
+                    container.appendChild(btn);
                 });
-            }
+            } else { alert("Error: " + data.error); }
         }
 
         async function startDownload() {
-            if(!selectedQuality) return alert("Select a quality");
-            const body = {
-                action: 'youtube',
-                url: document.getElementById('yt-url').value,
-                quality: selectedQuality,
-                destination: document.getElementById('dest-id').value,
-                creds: localStorage.getItem('creds')
-            };
-
+            if(!selQ) return alert("Select quality first!");
             const res = await fetch(`${API}/api/run`, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(body)
+                body: JSON.stringify({
+                    action: 'youtube',
+                    url: document.getElementById('yt-url').value,
+                    quality: selQ,
+                    destination: document.getElementById('folder-id').value,
+                    creds: localStorage.getItem('creds')
+                })
             });
             const data = await res.json();
-            track(data.id);
+            trackTask(data.id);
         }
 
-        function track(tid) {
-            document.getElementById('status-card').classList.remove('hidden');
-            const interval = setInterval(async () => {
-                const res = await fetch(`${API}/api/status/${tid}`);
+        function trackTask(id) {
+            document.getElementById('progress-card').classList.remove('hidden');
+            const itv = setInterval(async () => {
+                const res = await fetch(`${API}/api/status/${id}`);
                 const s = await res.json();
-                document.getElementById('status-text').innerText = s.status;
-                document.getElementById('status-bar').style.width = `${s.percent}%`;
+                document.getElementById('p-status').innerText = s.status;
+                document.getElementById('p-bar').style.width = (s.percent || 0) + "%";
                 if(s.is_complete) {
-                    clearInterval(interval);
+                    clearInterval(itv);
                     if(s.drive_link) window.open(s.drive_link, '_blank');
                 }
             }, 2000);
