@@ -6,680 +6,113 @@
     <title>YouTube Downloader - TechZoneX</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;500;700&display=swap');
-        body { font-family: 'Space Grotesk', sans-serif; background: #030712; color: #e2e8f0; }
-        .glass-panel { background: rgba(17, 24, 39, 0.8); backdrop-filter: blur(20px); border: 1px solid rgba(55, 65, 81, 0.5); border-radius: 1rem; }
-        input, select { background: #0f172a !important; border: 1px solid #1e293b !important; color: white !important; }
-        .progress-bar { background: linear-gradient(90deg, #ef4444, #f97316, #eab308); }
-        .video-player { background: #000; border-radius: 0.5rem; }
-        .format-option { transition: all 0.2s; }
-        .format-option:hover { transform: translateY(-2px); }
-        .format-option.selected { border-color: #3b82f6; background: rgba(59, 130, 246, 0.1); }
-        ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-track { background: #1e293b; }
-        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
-        ::-webkit-scrollbar-thumb:hover { background: #64748b; }
-    </style>
 </head>
-<body class="min-h-screen p-4 md:p-6">
-    <div class="max-w-6xl mx-auto">
-        <!-- Header -->
-        <div class="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
-            <div class="flex items-center gap-3">
-                <div class="w-12 h-12 bg-gradient-to-br from-red-600 to-red-800 rounded-xl flex items-center justify-center shadow-lg">
-                    <i class="fab fa-youtube text-white text-2xl"></i>
-                </div>
-                <div>
-                    <h1 class="text-2xl md:text-3xl font-bold text-white">YouTube Downloader Pro</h1>
-                    <p class="text-sm text-slate-400">Download videos in any available format directly to Google Drive</p>
-                </div>
-            </div>
+<body class="bg-gray-950 text-slate-200 p-6">
+    <div class="max-w-4xl mx-auto space-y-6">
+        <div class="bg-gray-900 p-6 rounded-xl border border-gray-800">
+            <h1 class="text-xl font-bold mb-4">YouTube to Drive</h1>
             <div class="flex gap-2">
-                <a href="https://techzonex.store" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm font-bold text-slate-300 transition flex items-center">
-                    <i class="fas fa-home mr-2"></i> Main Dashboard
-                </a>
-                <button onclick="checkAuth()" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-bold text-white transition flex items-center">
-                    <i class="fas fa-sync-alt mr-2"></i> Refresh Auth
-                </button>
+                <input type="text" id="yt-url" placeholder="Paste YouTube Link" class="flex-1 bg-gray-950 border border-gray-700 p-3 rounded-lg">
+                <button onclick="analyze()" class="bg-blue-600 px-6 py-3 rounded-lg font-bold">Analyze</button>
             </div>
         </div>
 
-        <!-- Auth Status -->
-        <div id="auth-status" class="mb-6"></div>
-
-        <!-- Main Container -->
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <!-- Left Column: Input & Controls -->
-            <div class="lg:col-span-2 space-y-6">
-                <!-- URL Input -->
-                <div class="glass-panel p-6">
-                    <h2 class="text-lg font-bold text-white mb-4 flex items-center">
-                        <i class="fas fa-link mr-3 text-blue-400"></i> Enter YouTube URL
-                    </h2>
-                    <div class="flex gap-3">
-                        <input type="text" id="youtube-url" 
-                               placeholder="https://www.youtube.com/watch?v=... or https://youtu.be/..."
-                               class="flex-1 p-4 rounded-lg text-base">
-                        <button onclick="fetchVideoInfo()" 
-                                class="px-6 py-4 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 rounded-lg font-bold text-white transition flex items-center">
-                            <i class="fas fa-search mr-2"></i> Analyze
-                        </button>
-                    </div>
-                </div>
-
-                <!-- Video Info Display -->
-                <div id="video-info" class="hidden glass-panel p-6">
-                    <div class="flex justify-between items-start mb-4">
-                        <h2 class="text-lg font-bold text-white flex items-center">
-                            <i class="fas fa-info-circle mr-3 text-green-400"></i> Video Information
-                        </h2>
-                        <button onclick="clearVideoInfo()" class="text-slate-400 hover:text-white">
-                            <i class="fas fa-times"></i>
-                        </button>
-                    </div>
-                    
-                    <div id="video-details" class="space-y-4">
-                        <!-- Video details will be loaded here -->
-                    </div>
-                </div>
-
-                <!-- Format Selection -->
-                <div id="format-selection" class="hidden glass-panel p-6">
-                    <h2 class="text-lg font-bold text-white mb-4 flex items-center">
-                        <i class="fas fa-download mr-3 text-yellow-400"></i> Select Download Format
-                    </h2>
-                    
-                    <div class="mb-4">
-                        <div class="flex gap-2 mb-3">
-                            <button onclick="filterFormats('all')" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded text-sm">All</button>
-                            <button onclick="filterFormats('video')" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded text-sm">Video</button>
-                            <button onclick="filterFormats('audio')" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded text-sm">Audio</button>
-                        </div>
-                        <input type="text" id="format-search" placeholder="Search formats..." 
-                               class="w-full p-3 rounded-lg text-sm mb-4" oninput="searchFormats()">
-                    </div>
-                    
-                    <div id="formats-container" class="max-h-80 overflow-y-auto pr-2">
-                        <!-- Formats will be loaded here -->
-                    </div>
-                    
-                    <div id="selected-format" class="hidden mt-4 p-4 bg-slate-900/50 rounded-lg">
-                        <div class="flex justify-between items-center">
-                            <div>
-                                <p class="text-sm text-slate-300">Selected:</p>
-                                <p id="selected-format-name" class="font-bold text-white"></p>
-                            </div>
-                            <button onclick="clearSelection()" class="text-slate-400 hover:text-white">
-                                <i class="fas fa-times"></i>
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Destination & Download -->
-                <div id="download-section" class="hidden glass-panel p-6">
-                    <h2 class="text-lg font-bold text-white mb-4 flex items-center">
-                        <i class="fas fa-cloud-upload-alt mr-3 text-green-400"></i> Download Settings
-                    </h2>
-                    
-                    <div class="space-y-4">
-                        <div>
-                            <label class="block text-sm font-medium text-slate-300 mb-2">
-                                <i class="fas fa-folder mr-2"></i> Destination Folder ID (Optional)
-                            </label>
-                            <input type="text" id="destination-folder" 
-                                   placeholder="Google Drive Folder ID - Leave empty for root"
-                                   class="w-full p-4 rounded-lg text-base">
-                        </div>
-                        
-                        <div class="pt-4 border-t border-slate-800">
-                            <button onclick="startDownload()" 
-                                    class="w-full py-4 bg-gradient-to-r from-green-600 to-emerald-500 hover:from-green-700 hover:to-emerald-600 rounded-lg font-bold text-white text-lg transition duration-200 flex items-center justify-center">
-                                <i class="fas fa-download mr-3"></i> Download to Google Drive
-                            </button>
-                            <p class="text-xs text-slate-500 mt-2 text-center">
-                                File will be uploaded to your Google Drive and available for download
-                            </p>
-                        </div>
-                    </div>
+        <div id="info-card" class="hidden bg-gray-900 p-6 rounded-xl border border-gray-800 space-y-4">
+            <div class="flex gap-4">
+                <img id="thumb" class="w-32 rounded-lg">
+                <div>
+                    <h2 id="title" class="font-bold text-lg"></h2>
+                    <p id="meta" class="text-sm text-gray-500"></p>
                 </div>
             </div>
+            
+            <div>
+                <label class="block text-sm font-bold mb-2">Select Quality</label>
+                <div id="qualities" class="grid grid-cols-2 md:grid-cols-3 gap-2"></div>
+            </div>
 
-            <!-- Right Column: Preview & Results -->
-            <div class="space-y-6">
-                <!-- Video Preview -->
-                <div id="video-preview" class="hidden glass-panel p-6">
-                    <h2 class="text-lg font-bold text-white mb-4 flex items-center">
-                        <i class="fas fa-play-circle mr-3 text-red-400"></i> Video Preview
-                    </h2>
-                    <div class="aspect-video bg-black rounded-lg overflow-hidden mb-4">
-                        <img id="video-thumbnail" src="" alt="Video thumbnail" class="w-full h-full object-cover">
-                        <div id="video-player" class="hidden w-full h-full">
-                            <!-- HTML5 video player will be inserted here -->
-                        </div>
-                    </div>
-                    <div class="flex gap-2">
-                        <button onclick="showThumbnail()" class="flex-1 px-3 py-2 bg-slate-800 hover:bg-slate-700 rounded text-sm">
-                            <i class="fas fa-image mr-1"></i> Thumbnail
-                        </button>
-                        <button onclick="previewVideo()" class="flex-1 px-3 py-2 bg-blue-600 hover:bg-blue-700 rounded text-sm" disabled id="preview-btn">
-                            <i class="fas fa-play mr-1"></i> Preview
-                        </button>
-                    </div>
-                </div>
+            <input type="text" id="dest-id" placeholder="Google Drive Folder ID (Optional)" class="w-full bg-gray-950 border border-gray-700 p-3 rounded-lg">
+            <button onclick="startDownload()" class="w-full bg-green-600 py-4 rounded-lg font-bold">Start Download</button>
+        </div>
 
-                <!-- Progress Tracker -->
-                <div id="progress-tracker" class="hidden glass-panel p-6">
-                    <h2 class="text-lg font-bold text-white mb-4 flex items-center">
-                        <i class="fas fa-spinner fa-spin mr-3 text-blue-400"></i> Download Progress
-                    </h2>
-                    
-                    <div class="space-y-4">
-                        <div>
-                            <div class="w-full bg-slate-800 h-3 rounded-full overflow-hidden mb-2">
-                                <div id="progress-bar" class="progress-bar h-full rounded-full transition-all duration-300" style="width: 0%"></div>
-                            </div>
-                            <div class="flex justify-between text-sm">
-                                <span id="progress-percent" class="text-slate-300">0%</span>
-                                <span id="progress-status" class="text-slate-400">Initializing...</span>
-                            </div>
-                        </div>
-                        
-                        <div id="task-details" class="text-sm text-slate-500 space-y-1"></div>
-                        
-                        <button onclick="cancelDownload()" id="cancel-btn" 
-                                class="w-full py-2 bg-red-600/20 hover:bg-red-600/30 text-red-400 rounded text-sm font-bold border border-red-600/30">
-                            <i class="fas fa-times-circle mr-2"></i> Cancel Download
-                        </button>
-                    </div>
-                </div>
-
-                <!-- Results -->
-                <div id="results-container" class="glass-panel p-6">
-                    <h2 class="text-lg font-bold text-white mb-4 flex items-center">
-                        <i class="fas fa-check-circle mr-3 text-green-400"></i> Results
-                    </h2>
-                    <div id="results-content" class="text-sm text-slate-400">
-                        <p>Enter a YouTube URL and select a format to download.</p>
-                    </div>
-                </div>
-
-                <!-- Quick Stats -->
-                <div class="glass-panel p-6">
-                    <h2 class="text-lg font-bold text-white mb-4 flex items-center">
-                        <i class="fas fa-chart-bar mr-3 text-purple-400"></i> Quick Stats
-                    </h2>
-                    <div class="grid grid-cols-2 gap-3">
-                        <div class="p-3 bg-slate-900/50 rounded-lg">
-                            <div class="text-xs text-slate-400">Active Tasks</div>
-                            <div class="text-xl font-bold text-white" id="active-tasks">0</div>
-                        </div>
-                        <div class="p-3 bg-slate-900/50 rounded-lg">
-                            <div class="text-xs text-slate-400">Formats</div>
-                            <div class="text-xl font-bold text-white" id="total-formats">0</div>
-                        </div>
-                    </div>
-                </div>
+        <div id="status-card" class="hidden bg-gray-900 p-6 rounded-xl border border-gray-800">
+            <div id="status-text" class="text-sm font-bold mb-2">Initializing...</div>
+            <div class="w-full bg-gray-800 h-2 rounded-full overflow-hidden">
+                <div id="status-bar" class="bg-blue-500 h-full w-0 transition-all"></div>
             </div>
         </div>
     </div>
 
-    <!-- JavaScript -->
     <script>
         const API = "https://simple-liana-techzone3201-048a28fa.koyeb.app";
-        let currentTaskId = null;
-        let currentFormats = [];
-        let currentVideoInfo = null;
-        let selectedFormat = null;
-        let progressInterval = null;
+        let selectedQuality = null;
 
-        // Initialize
-        document.addEventListener('DOMContentLoaded', function() {
-            checkAuth();
-            updateStats();
-        });
-
-        // Auth Functions
-        function checkAuth() {
+        async function analyze() {
+            const url = document.getElementById('yt-url').value;
             const creds = localStorage.getItem('creds');
-            const authStatus = document.getElementById('auth-status');
-            
-            if (!creds) {
-                authStatus.innerHTML = `
-                    <div class="p-4 bg-gradient-to-r from-red-900/30 to-orange-900/30 border border-red-500/30 rounded-lg">
-                        <div class="flex items-center">
-                            <i class="fas fa-exclamation-triangle text-red-400 text-xl mr-3"></i>
-                            <div>
-                                <p class="text-red-200 font-bold">🔒 Authentication Required</p>
-                                <p class="text-red-300 text-sm">Please login with Google to use YouTube Downloader</p>
-                            </div>
-                        </div>
-                        <div class="mt-3 flex gap-2">
-                            <button onclick="goToLogin()" class="px-4 py-2 bg-gradient-to-r from-red-600 to-orange-500 hover:from-red-700 hover:to-orange-600 text-white rounded text-sm font-bold flex items-center">
-                                <i class="fab fa-google mr-2"></i> Login with Google
-                            </button>
-                        </div>
-                    </div>`;
-            } else {
-                authStatus.innerHTML = `
-                    <div class="p-4 bg-gradient-to-r from-green-900/30 to-emerald-900/30 border border-green-500/30 rounded-lg">
-                        <div class="flex items-center">
-                            <i class="fas fa-check-circle text-green-400 text-xl mr-3"></i>
-                            <div>
-                                <p class="text-green-200 font-bold">✅ Authenticated Successfully</p>
-                                <p class="text-green-300 text-sm">You can now download YouTube videos to your Google Drive</p>
-                            </div>
-                        </div>
-                    </div>`;
-            }
-        }
+            if(!creds) return alert("Login on main page first");
 
-        function goToLogin() {
-            window.open(API + '/auth/login', '_blank');
-        }
+            const res = await fetch(`${API}/api/youtube/info`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ url, creds })
+            });
+            const data = await res.json();
 
-        // Video Info Functions
-        async function fetchVideoInfo() {
-            const url = document.getElementById('youtube-url').value.trim();
-            const creds = localStorage.getItem('creds');
-            
-            if (!url) {
-                showError('Please enter a YouTube URL');
-                return;
-            }
-            
-            if (!creds) {
-                showError('Please login first');
-                goToLogin();
-                return;
-            }
-            
-            if (!url.includes('youtube.com') && !url.includes('youtu.be')) {
-                showError('Please enter a valid YouTube URL');
-                return;
-            }
-            
-            showLoading('Analyzing video...');
-            
-            try {
-                const response = await fetch(API + '/api/youtube/info', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ url, creds })
+            if(data.success) {
+                document.getElementById('info-card').classList.remove('hidden');
+                document.getElementById('title').innerText = data.title;
+                document.getElementById('thumb').src = data.thumbnail;
+                document.getElementById('meta').innerText = `${data.uploader} • ${Math.floor(data.duration/60)}m`;
+                
+                const qContainer = document.getElementById('qualities');
+                qContainer.innerHTML = "";
+                // FIX: Use data.qualities instead of data.formats
+                data.qualities.forEach(q => {
+                    const btn = document.createElement('button');
+                    btn.className = "p-2 bg-gray-800 rounded border border-gray-700 text-xs hover:bg-gray-700";
+                    btn.innerText = q.label;
+                    btn.onclick = () => {
+                        selectedQuality = q.quality;
+                        Array.from(qContainer.children).forEach(c => c.classList.remove('border-blue-500'));
+                        btn.classList.add('border-blue-500');
+                    };
+                    qContainer.appendChild(btn);
                 });
-                
-                const data = await response.json();
-                
-                if (data.success) {
-                    currentVideoInfo = data;
-                    displayVideoInfo(data);
-                    displayFormats(data.formats);
-                    showVideoPreview(data.thumbnail);
-                    updateStats();
-                } else {
-                    showError('Failed to get video info: ' + (data.error || 'Unknown error'));
-                }
-            } catch (error) {
-                showError('Network error: ' + error.message);
             }
         }
 
-        function displayVideoInfo(info) {
-            const container = document.getElementById('video-info');
-            const details = document.getElementById('video-details');
-            
-            const duration = formatDuration(info.duration);
-            
-            details.innerHTML = `
-                <div class="flex items-start gap-4">
-                    <div class="flex-shrink-0">
-                        <img src="${info.thumbnail}" alt="Thumbnail" class="w-24 h-16 rounded object-cover">
-                    </div>
-                    <div class="flex-1">
-                        <h3 class="font-bold text-white text-lg mb-1">${info.title}</h3>
-                        <div class="flex flex-wrap gap-3 text-sm text-slate-400">
-                            <span><i class="fas fa-user mr-1"></i> ${info.uploader || 'Unknown'}</span>
-                            <span><i class="fas fa-clock mr-1"></i> ${duration}</span>
-                            <span><i class="fas fa-eye mr-1"></i> ${formatNumber(info.view_count || 0)} views</span>
-                        </div>
-                    </div>
-                </div>
-            `;
-            
-            container.classList.remove('hidden');
-            document.getElementById('format-selection').classList.remove('hidden');
-            document.getElementById('download-section').classList.remove('hidden');
-            document.getElementById('video-preview').classList.remove('hidden');
-        }
-
-        function displayFormats(formats) {
-            currentFormats = formats;
-            const container = document.getElementById('formats-container');
-            
-            if (formats.length === 0) {
-                container.innerHTML = '<p class="text-slate-400 text-center py-4">No formats available</p>';
-                return;
-            }
-            
-            let html = '<div class="grid grid-cols-1 gap-2">';
-            
-            formats.forEach((format, index) => {
-                html += `
-                    <div class="format-option p-3 bg-slate-900/50 rounded-lg cursor-pointer border border-slate-800 hover:border-slate-600" 
-                          onclick="selectFormat('${format.id}', ${index})"
-                          data-type="${format.type}">
-                        <div class="flex justify-between items-center">
-                            <div>
-                                <p class="font-medium text-white">${format.name}</p>
-                                <p class="text-xs text-slate-400 mt-1">ID: ${format.id}</p>
-                            </div>
-                            <i class="fas fa-check-circle text-blue-500 hidden"></i>
-                        </div>
-                    </div>
-                `;
-            });
-            
-            html += '</div>';
-            container.innerHTML = html;
-            
-            // Auto-select best video format
-            const bestVideo = formats.find(f => f.id === currentVideoInfo.best_video);
-            if (bestVideo) {
-                selectFormat(bestVideo.id, formats.findIndex(f => f.id === bestVideo.id));
-            }
-        }
-
-        function selectFormat(formatId, index) {
-            selectedFormat = formatId;
-            const format = currentFormats.find(f => f.id === formatId);
-            
-            // Update UI
-            document.querySelectorAll('.format-option').forEach((el, i) => {
-                el.classList.remove('selected');
-                el.querySelector('.fa-check-circle').classList.add('hidden');
-                if (i === index) {
-                    el.classList.add('selected');
-                    el.querySelector('.fa-check-circle').classList.remove('hidden');
-                }
-            });
-            
-            // Show selected format
-            const selectedContainer = document.getElementById('selected-format');
-            const selectedName = document.getElementById('selected-format-name');
-            
-            selectedName.textContent = format.name;
-            selectedContainer.classList.remove('hidden');
-            
-            // Enable preview button if video format
-            const previewBtn = document.getElementById('preview-btn');
-            previewBtn.disabled = format.type !== 'video';
-            
-            // Update stats
-            document.getElementById('total-formats').textContent = currentFormats.length;
-        }
-
-        function filterFormats(type) {
-            document.querySelectorAll('.format-option').forEach(el => {
-                if (type === 'all') {
-                    el.style.display = 'block';
-                } else {
-                    const formatType = el.getAttribute('data-type');
-                    el.style.display = formatType === type ? 'block' : 'none';
-                }
-            });
-        }
-
-        function searchFormats() {
-            const search = document.getElementById('format-search').value.toLowerCase();
-            document.querySelectorAll('.format-option').forEach(el => {
-                const text = el.textContent.toLowerCase();
-                el.style.display = text.includes(search) ? 'block' : 'none';
-            });
-        }
-
-        function clearSelection() {
-            selectedFormat = null;
-            document.getElementById('selected-format').classList.add('hidden');
-            document.querySelectorAll('.format-option').forEach(el => {
-                el.classList.remove('selected');
-                el.querySelector('.fa-check-circle').classList.add('hidden');
-            });
-        }
-
-        function clearVideoInfo() {
-            document.getElementById('video-info').classList.add('hidden');
-            document.getElementById('format-selection').classList.add('hidden');
-            document.getElementById('download-section').classList.add('hidden');
-            document.getElementById('video-preview').classList.add('hidden');
-            document.getElementById('youtube-url').value = '';
-            currentVideoInfo = null;
-            currentFormats = [];
-            selectedFormat = null;
-            showThumbnail();
-        }
-
-        // Download Functions
         async function startDownload() {
-            if (!selectedFormat) {
-                showError('Please select a format first');
-                return;
-            }
-            
-            const creds = localStorage.getItem('creds');
-            const url = document.getElementById('youtube-url').value.trim();
-            const destination = document.getElementById('destination-folder').value.trim();
-            
-            showLoading('Starting download...');
-            
-            try {
-                const response = await fetch(API + '/api/youtube/download', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        url,
-                        format_id: selectedFormat,
-                        destination,
-                        creds
-                    })
-                });
-                
-                const data = await response.json();
-                
-                if (data.success) {
-                    currentTaskId = data.task_id;
-                    startProgressTracking(data.task_id);
-                } else {
-                    showError('Failed to start download: ' + (data.error || 'Unknown error'));
+            if(!selectedQuality) return alert("Select a quality");
+            const body = {
+                action: 'youtube',
+                url: document.getElementById('yt-url').value,
+                quality: selectedQuality,
+                destination: document.getElementById('dest-id').value,
+                creds: localStorage.getItem('creds')
+            };
+
+            const res = await fetch(`${API}/api/run`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(body)
+            });
+            const data = await res.json();
+            track(data.id);
+        }
+
+        function track(tid) {
+            document.getElementById('status-card').classList.remove('hidden');
+            const interval = setInterval(async () => {
+                const res = await fetch(`${API}/api/status/${tid}`);
+                const s = await res.json();
+                document.getElementById('status-text').innerText = s.status;
+                document.getElementById('status-bar').style.width = `${s.percent}%`;
+                if(s.is_complete) {
+                    clearInterval(interval);
+                    if(s.drive_link) window.open(s.drive_link, '_blank');
                 }
-            } catch (error) {
-                showError('Network error: ' + error.message);
-            }
-        }
-
-        function startProgressTracking(taskId) {
-            document.getElementById('progress-tracker').classList.remove('hidden');
-            document.getElementById('results-container').classList.add('hidden');
-            
-            if (progressInterval) clearInterval(progressInterval);
-            
-            progressInterval = setInterval(async () => {
-                try {
-                    const response = await fetch(API + '/api/status/' + taskId);
-                    const status = await response.json();
-                    
-                    if (status.is_complete) {
-                        clearInterval(progressInterval);
-                        if (status.status.includes('Failed')) {
-                            showError(status.status);
-                        } else {
-                            showSuccess(status);
-                        }
-                        document.getElementById('progress-tracker').classList.add('hidden');
-                        updateStats();
-                    } else {
-                        updateProgress(status);
-                    }
-                } catch (error) {
-                    console.error('Error tracking progress:', error);
-                }
-            }, 1000);
-        }
-
-        function updateProgress(status) {
-            document.getElementById('progress-bar').style.width = status.percent + '%';
-            document.getElementById('progress-percent').textContent = status.percent + '%';
-            document.getElementById('progress-status').textContent = status.status;
-            
-            const details = document.getElementById('task-details');
-            details.innerHTML = `
-                <p><i class="fas fa-tasks mr-2"></i> Action: ${status.action || 'Download'}</p>
-                <p><i class="fas fa-id-card mr-2"></i> Task ID: ${status.task_id || currentTaskId}</p>
-            `;
-            
-            document.getElementById('active-tasks').textContent = '1';
-        }
-
-        async function cancelDownload() {
-            if (!currentTaskId) return;
-            
-            try {
-                await fetch(API + '/api/cancel/' + currentTaskId, { method: 'POST' });
-                showError('Download cancelled');
-                document.getElementById('progress-tracker').classList.add('hidden');
-                if (progressInterval) clearInterval(progressInterval);
-                updateStats();
-            } catch (error) {
-                console.error('Error cancelling:', error);
-            }
-        }
-
-        // Preview Functions
-        function showVideoPreview(thumbnail) {
-            document.getElementById('video-thumbnail').src = thumbnail;
-            document.getElementById('video-player').classList.add('hidden');
-            document.getElementById('video-thumbnail').classList.remove('hidden');
-        }
-
-        function showThumbnail() {
-            if (currentVideoInfo?.thumbnail) {
-                document.getElementById('video-thumbnail').src = currentVideoInfo.thumbnail;
-                document.getElementById('video-player').classList.add('hidden');
-                document.getElementById('video-thumbnail').classList.remove('hidden');
-            }
-        }
-
-        function previewVideo() {
-            // In a real implementation, you would stream the video
-            // For now, we'll show a message
-            showInfo('Video preview would stream here. Full preview requires downloading first.');
-        }
-
-        // UI Helper Functions
-        function showLoading(message) {
-            document.getElementById('results-content').innerHTML = `
-                <div class="flex items-center justify-center p-4">
-                    <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mr-3"></div>
-                    <span class="text-slate-300">${message}</span>
-                </div>
-            `;
-        }
-
-        function showError(message) {
-            document.getElementById('results-content').innerHTML = `
-                <div class="p-4 bg-red-900/30 border border-red-500/30 rounded-lg">
-                    <div class="flex items-center">
-                        <i class="fas fa-times-circle text-red-400 text-xl mr-3"></i>
-                        <p class="text-red-200">${message}</p>
-                    </div>
-                </div>
-            `;
-            document.getElementById('results-container').classList.remove('hidden');
-        }
-
-        function showInfo(message) {
-            document.getElementById('results-content').innerHTML = `
-                <div class="p-4 bg-blue-900/30 border border-blue-500/30 rounded-lg">
-                    <div class="flex items-center">
-                        <i class="fas fa-info-circle text-blue-400 text-xl mr-3"></i>
-                        <p class="text-blue-200">${message}</p>
-                    </div>
-                </div>
-            `;
-            document.getElementById('results-container').classList.remove('hidden');
-        }
-
-        function showSuccess(status) {
-            let html = `
-                <div class="p-4 bg-gradient-to-r from-green-900/30 to-emerald-900/30 border border-green-500/30 rounded-lg">
-                    <div class="flex items-center mb-3">
-                        <i class="fas fa-check-circle text-green-400 text-xl mr-3"></i>
-                        <p class="text-green-200 font-bold text-lg">✅ Download Complete!</p>
-                    </div>
-            `;
-            
-            if (status.result_url) {
-                html += `
-                    <div class="space-y-3">
-                        <div class="flex gap-2">
-                            <a href="${status.result_url}" target="_blank" 
-                               class="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded text-sm font-bold flex items-center justify-center">
-                               <i class="fas fa-download mr-2"></i> Download File
-                            </a>
-                            <button onclick="previewDownload('${status.result_url}')" 
-                                    class="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm font-bold flex items-center justify-center">
-                               <i class="fas fa-play mr-2"></i> Preview
-                            </button>
-                        </div>
-                `;
-            }
-            
-            if (status.drive_link) {
-                html += `
-                        <a href="${status.drive_link}" target="_blank" 
-                           class="block px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white rounded text-sm font-bold flex items-center justify-center">
-                           <i class="fab fa-google-drive mr-2"></i> Open in Google Drive
-                        </a>
-                `;
-            }
-            
-            html += `</div></div>`;
-            
-            document.getElementById('results-content').innerHTML = html;
-            document.getElementById('results-container').classList.remove('hidden');
-        }
-
-        async function previewDownload(url) {
-            // Extract filename from URL
-            const filename = url.split('/').pop();
-            const previewUrl = API + '/api/preview/' + filename;
-            
-            // Open in new tab for preview
-            window.open(previewUrl, '_blank');
-        }
-
-        // Utility Functions
-        function formatDuration(seconds) {
-            if (!seconds) return 'Unknown';
-            const hours = Math.floor(seconds / 3600);
-            const minutes = Math.floor((seconds % 3600) / 60);
-            const secs = Math.floor(seconds % 60);
-            
-            if (hours > 0) {
-                return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-            }
-            return `${minutes}:${secs.toString().padStart(2, '0')}`;
-        }
-
-        function formatNumber(num) {
-            if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
-            if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
-            return num.toString();
-        }
-
-        function updateStats() {
-            document.getElementById('active-tasks').textContent = '0';
-            document.getElementById('total-formats').textContent = currentFormats.length || '0';
+            }, 2000);
         }
     </script>
 </body>
